@@ -71,6 +71,71 @@ export interface QuestionSet {
   culture_fit: QuestionItem[];
 }
 
+export interface Interview {
+  id: number;
+  position_id: number;
+  candidate_id: number;
+  status: string;
+  questions_json: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number;
+  created_at: string;
+  candidate_codename: string;
+  position_title: string;
+  has_summary: boolean;
+}
+
+export interface TranscriptEntry {
+  id: number;
+  speaker: string;
+  sanitized_text: string;
+  timestamp: number;
+  duration: number;
+}
+
+export interface InterviewSummary {
+  id: number;
+  interview_id: number;
+  candidate_overview: string;
+  expression_score: number;
+  case_richness_score: number;
+  depth_score: number;
+  self_awareness_score: number;
+  enthusiasm_score: number;
+  overall_score: number;
+  highlights: string;
+  concerns: string;
+  jd_alignment: string;
+  recommendation: string;
+  recommendation_reason: string;
+  next_steps: string;
+  pdf_path: string;
+  created_at: string;
+}
+
+export interface WsTranscript {
+  type: "transcript";
+  speaker: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface WsAnalysis {
+  type: "analysis";
+  current_question_index: number;
+  elements_checked: string[];
+  follow_up_suggestions: string[];
+  instant_rating: string;
+  instant_comment: string;
+}
+
+export type WsMessage =
+  | WsTranscript
+  | WsAnalysis
+  | { type: "error"; message: string }
+  | { type: "question_switched"; current_question_index: number };
+
 export const api = {
   positions: {
     list: () => request<Position[]>("/positions"),
@@ -112,5 +177,47 @@ export const api = {
       request<QuestionSet>(`/matches/${candidateId}/questions`, {
         method: "POST",
       }),
+  },
+  interviews: {
+    list: (candidateId?: number, positionId?: number) => {
+      const params = new URLSearchParams();
+      if (candidateId) params.set("candidate_id", String(candidateId));
+      if (positionId) params.set("position_id", String(positionId));
+      return request<Interview[]>(`/interviews?${params}`);
+    },
+    get: (id: number) => request<Interview>(`/interviews/${id}`),
+    create: (data: {
+      position_id: number;
+      candidate_id: number;
+      questions_json?: string;
+    }) =>
+      request<Interview>("/interviews", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    start: (id: number) =>
+      request<Interview>(`/interviews/${id}/start`, { method: "POST" }),
+    end: (id: number) =>
+      request<Interview>(`/interviews/${id}/end`, { method: "POST" }),
+    createSession: (id: number) =>
+      request<{ status: string }>(`/interviews/${id}/session`, {
+        method: "POST",
+      }),
+    stopSession: (id: number) =>
+      request<{ status: string }>(`/interviews/${id}/session/stop`, {
+        method: "POST",
+      }),
+    getTranscripts: (id: number) =>
+      request<TranscriptEntry[]>(`/interviews/${id}/transcripts`),
+  },
+  summaries: {
+    get: (interviewId: number) =>
+      request<InterviewSummary>(`/summaries/${interviewId}`),
+    generate: (interviewId: number) =>
+      request<InterviewSummary>(`/summaries/${interviewId}/generate`, {
+        method: "POST",
+      }),
+    exportPdf: (interviewId: number) =>
+      `${BASE}/summaries/${interviewId}/pdf`,
   },
 };

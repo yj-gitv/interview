@@ -250,6 +250,29 @@ export default function CandidateDetail() {
           </div>
         )}
       </div>
+
+      {/* Start Interview */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-900">面试</h3>
+          <button
+            onClick={async () => {
+              if (!id || !match) return;
+              const questionsJson = match.questions || "[]";
+              const iv = await api.interviews.create({
+                position_id: candidate!.position_id,
+                candidate_id: Number(id),
+                questions_json: questionsJson,
+              });
+              window.location.href = `/interviews/${iv.id}/live`;
+            }}
+            disabled={!match}
+            className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 transition-colors"
+          >
+            开始面试
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

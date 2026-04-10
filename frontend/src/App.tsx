@@ -3,6 +3,8 @@ import Layout from "./components/Layout";
 import PositionList from "./pages/PositionList";
 import PositionDetail from "./pages/PositionDetail";
 import CandidateDetail from "./pages/CandidateDetail";
+import InterviewLive from "./pages/InterviewLive";
+import InterviewSummary from "./pages/InterviewSummary";
 
 export default function App() {
   return (
@@ -12,6 +14,8 @@ export default function App() {
         <Route path="/positions" element={<PositionList />} />
         <Route path="/positions/:id" element={<PositionDetail />} />
         <Route path="/candidates/:id" element={<CandidateDetail />} />
+        <Route path="/interviews/:id/live" element={<InterviewLive />} />
+        <Route path="/interviews/:id/summary" element={<InterviewSummary />} />
       </Route>
     </Routes>
   );

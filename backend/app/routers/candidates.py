@@ -1,4 +1,7 @@
+import asyncio
+import dataclasses
 import json
+import logging
 import os
 import uuid
 
@@ -6,11 +9,16 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models.candidate import Candidate
 from app.models.position import Position
+from app.models.resume_match import ResumeMatch
+from app.services.matching import MatchingService
 from app.services.pii_masking import PIIMasker
+from app.services.question_gen import QuestionGenService
 from app.services.resume_parser import ResumeParser
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/candidates", tags=["candidates"])
 
@@ -23,8 +31,63 @@ def _next_codename() -> str:
     return f"候选人{chr(64 + _codename_counter)}"
 
 
+async def _auto_score_and_generate(candidate_id: int, position_id: int) -> None:
+    """Upload 后自动在后台执行评分 + 问题生成。"""
+    db = SessionLocal()
+    try:
+        candidate = db.get(Candidate, candidate_id)
+        position = db.get(Position, position_id)
+        if not candidate or not position:
+            return
+
+        matching_svc = MatchingService()
+        result = await matching_svc.match(
+            jd_text=position.jd_text,
+            resume_text=candidate.resume_sanitized_text,
+            preferences=position.preferences,
+        )
+
+        match = ResumeMatch(
+            candidate_id=candidate_id,
+            experience_score=result.experience_score,
+            experience_note=result.experience_note,
+            industry_score=result.industry_score,
+            industry_note=result.industry_note,
+            competency_score=result.competency_score,
+            competency_note=result.competency_note,
+            potential_score=result.potential_score,
+            potential_note=result.potential_note,
+            overall_score=result.overall_score,
+            recommendation=result.recommendation,
+            highlights=json.dumps(result.highlights, ensure_ascii=False),
+            risks=json.dumps(result.risks, ensure_ascii=False),
+        )
+        db.add(match)
+        db.commit()
+        db.refresh(match)
+        logger.info("Auto-scored candidate %d: %.0f", candidate_id, result.overall_score)
+
+        question_svc = QuestionGenService()
+        question_set = await question_svc.generate(
+            jd_text=position.jd_text,
+            resume_text=candidate.resume_sanitized_text,
+            match_highlights=result.highlights,
+            match_risks=result.risks,
+            preferences=position.preferences,
+        )
+        match.questions = json.dumps(
+            dataclasses.asdict(question_set), ensure_ascii=False
+        )
+        db.commit()
+        logger.info("Auto-generated questions for candidate %d", candidate_id)
+    except Exception:
+        logger.exception("Auto-score failed for candidate %d", candidate_id)
+    finally:
+        db.close()
+
+
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
-def upload_resume(
+async def upload_resume(
     position_id: int = Query(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -67,6 +130,8 @@ def upload_resume(
     db.add(candidate)
     db.commit()
     db.refresh(candidate)
+
+    asyncio.create_task(_auto_score_and_generate(candidate.id, position_id))
 
     return {
         "id": candidate.id,

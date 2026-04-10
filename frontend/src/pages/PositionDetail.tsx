@@ -23,6 +23,16 @@ export default function PositionDetail() {
     load();
   }, [load]);
 
+  // 有未评分候选人时自动轮询刷新（等待后台自动评分完成）
+  useEffect(() => {
+    const hasPending = candidates.some((c) => !c.has_match);
+    if (!hasPending || candidates.length === 0) return;
+    const timer = setInterval(() => {
+      load();
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [candidates, load]);
+
   const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !id) return;
@@ -112,10 +122,10 @@ export default function PositionDetail() {
                   className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                     c.has_match
                       ? "bg-green-100 text-green-700"
-                      : "bg-gray-100 text-gray-600"
+                      : "bg-amber-100 text-amber-700 animate-pulse"
                   }`}
                 >
-                  {c.has_match ? "已评分" : "待评分"}
+                  {c.has_match ? "已评分" : "评分中..."}
                 </span>
               </div>
             </Link>
