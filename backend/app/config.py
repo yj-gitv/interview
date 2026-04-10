@@ -1,0 +1,16 @@
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    database_url: str = "sqlite:///./interview.db"
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model_fast: str = "gpt-4o-mini"
+    openai_model_strong: str = "gpt-4o"
+    upload_dir: str = "./uploads"
+    cors_origins: list[str] = ["http://localhost:5173"]
+
+    model_config = {"env_prefix": "INTERVIEW_", "env_file": ".env"}
+
+
+settings = Settings()
