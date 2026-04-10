@@ -1,3 +1,127 @@
+import { useEffect, useState, useCallback, type ChangeEvent } from "react";
+import { useParams, Link } from "react-router-dom";
+import { api, Position, Candidate } from "../api/client";
+
 export default function PositionDetail() {
-  return <div>PositionDetail placeholder</div>;
+  const { id } = useParams<{ id: string }>();
+  const [position, setPosition] = useState<Position | null>(null);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    const pid = Number(id);
+    const [pos, cands] = await Promise.all([
+      api.positions.get(pid),
+      api.candidates.list(pid),
+    ]);
+    setPosition(pos);
+    setCandidates(cands);
+  }, [id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !id) return;
+    setUploading(true);
+    try {
+      await api.candidates.upload(Number(id), file);
+      await load();
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  if (!position) {
+    return <div className="text-gray-500">加载中...</div>;
+  }
+
+  return (
+    <div>
+      <div className="mb-6">
+        <Link
+          to="/positions"
+          className="text-sm text-blue-600 hover:text-blue-800"
+        >
+          &larr; 返回岗位列表
+        </Link>
+        <h2 className="text-xl font-bold text-gray-900 mt-2">
+          {position.title}
+        </h2>
+        {position.department && (
+          <p className="text-sm text-gray-500">{position.department}</p>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+        <h3 className="font-semibold text-gray-900 mb-2">岗位描述</h3>
+        <p className="text-sm text-gray-700 whitespace-pre-wrap">
+          {position.jd_text}
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-gray-900">
+          候选人 ({candidates.length})
+        </h3>
+        <label
+          className={`px-4 py-2 text-sm font-medium rounded-lg cursor-pointer transition-colors ${
+            uploading
+              ? "bg-gray-300 text-gray-500"
+              : "bg-blue-600 text-white hover:bg-blue-700"
+          }`}
+        >
+          {uploading ? "上传中..." : "上传简历"}
+          <input
+            type="file"
+            accept=".pdf,.docx"
+            onChange={handleUpload}
+            disabled={uploading}
+            className="hidden"
+          />
+        </label>
+      </div>
+
+      {candidates.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <p>暂无候选人</p>
+          <p className="text-sm mt-1">上传简历（PDF 或 Word）自动创建候选人</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {candidates.map((c) => (
+            <Link
+              key={c.id}
+              to={`/candidates/${c.id}`}
+              className="block bg-white rounded-xl border border-gray-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-medium text-gray-900">
+                    {c.codename}
+                  </span>
+                  <span className="text-sm text-gray-500 ml-3">
+                    {new Date(c.created_at).toLocaleDateString("zh-CN")}
+                  </span>
+                </div>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    c.has_match
+                      ? "bg-green-100 text-green-700"
+                      : "bg-gray-100 text-gray-600"
+                  }`}
+                >
+                  {c.has_match ? "已评分" : "待评分"}
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
