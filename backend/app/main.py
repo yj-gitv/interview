@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine
 from app.models import Base
+from app.routers.candidates import router as candidates_router
+from app.routers.matches import router as matches_router
 from app.routers.positions import router as positions_router
 
 app = FastAPI(title="Interview Assistant", version="0.1.0")
@@ -23,6 +25,8 @@ def on_startup():
 
 
 app.include_router(positions_router)
+app.include_router(candidates_router)
+app.include_router(matches_router)
 
 
 @app.get("/api/health")

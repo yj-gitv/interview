@@ -12,3 +12,4 @@ frontend/dist/
 .venv/
 venv/
 .superpowers/
+backend/uploads/
