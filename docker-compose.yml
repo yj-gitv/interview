@@ -1,0 +1,24 @@
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    volumes:
+      - db_data:/app
+      - uploads:/app/uploads
+      - exports:/app/exports
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${APP_PORT:-3000}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  uploads:
+  exports:

@@ -77,7 +77,8 @@ export default function InterviewLive() {
 
   const connectWs = useCallback(() => {
     if (!id) return;
-    const ws = new WebSocket(`ws://localhost:8000/ws/interview/${id}`);
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/interview/${id}`);
     ws.onopen = () => setConnected(true);
     ws.onclose = () => setConnected(false);
     ws.onmessage = (event) => {
