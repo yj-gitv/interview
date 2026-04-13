@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, Interview, WsMessage, QuestionItem } from "../api/client";
 
 interface TranscriptLine {
@@ -182,6 +182,15 @@ export default function InterviewLive() {
       {/* Top Bar */}
       <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
+          <Link
+            to={`/candidates/${interview.candidate_id}`}
+            className="text-gray-400 hover:text-gray-700 transition-colors"
+            title="返回候选人"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+            </svg>
+          </Link>
           <span className="font-semibold text-gray-900">
             {interview.candidate_codename}
           </span>

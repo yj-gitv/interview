@@ -263,7 +263,22 @@ export const api = {
         auto_cleanup_days: number;
         whisper_model: string;
         audio_device_name: string;
+        dingtalk_webhook_url: string;
+        feishu_webhook_url: string;
+        openai_base_url: string;
+        openai_api_key_set: boolean;
       }>("/settings"),
+    updateWebhooks: (data: {
+      dingtalk_webhook_url?: string;
+      feishu_webhook_url?: string;
+    }) =>
+      request<{
+        dingtalk_webhook_url: string;
+        feishu_webhook_url: string;
+      }>("/settings/webhooks", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
     cleanup: (days?: number) =>
       request<{
         interviews: number;

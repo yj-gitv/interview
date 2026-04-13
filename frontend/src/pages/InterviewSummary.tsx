@@ -10,6 +10,7 @@ export default function InterviewSummary() {
   const [interview, setInterview] = useState<Interview | null>(null);
   const [summary, setSummary] = useState<SummaryType | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const [tab, setTab] = useState<Tab>("performance");
 
   useEffect(() => {
@@ -104,16 +105,28 @@ export default function InterviewSummary() {
               <button
                 onClick={async () => {
                   if (!id) return;
-                  const result = await api.summaries.push(Number(id));
-                  alert(
-                    result.pushed.dingtalk || result.pushed.feishu
-                      ? "推送成功"
-                      : "未配置推送渠道"
-                  );
+                  setPushing(true);
+                  try {
+                    const result = await api.summaries.push(Number(id));
+                    if (result.pushed.dingtalk || result.pushed.feishu) {
+                      alert(
+                        `推送成功！\n钉钉: ${result.pushed.dingtalk ? "✓" : "未配置"}\n飞书: ${result.pushed.feishu ? "✓" : "未配置"}`
+                      );
+                    } else {
+                      alert(
+                        "未配置推送渠道。\n\n请在 .env 文件中设置：\n• INTERVIEW_DINGTALK_WEBHOOK_URL\n• INTERVIEW_FEISHU_WEBHOOK_URL\n\n或前往「系统设置」页查看配置说明。"
+                      );
+                    }
+                  } catch (e) {
+                    alert(`推送失败: ${e instanceof Error ? e.message : "未知错误"}`);
+                  } finally {
+                    setPushing(false);
+                  }
                 }}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+                disabled={pushing}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:bg-gray-300"
               >
-                推送结果
+                {pushing ? "推送中..." : "推送结果"}
               </button>
             </>
           )}
