@@ -248,7 +248,7 @@ export const api = {
       `${BASE}/summaries/${interviewId}/pdf`,
     push: (interviewId: number) =>
       request<{ pushed: { dingtalk: boolean; feishu: boolean } }>(
-        `/summaries/${interviewId}/push`,
+        `/summaries/${interviewId}/push?base_url=${encodeURIComponent(window.location.origin)}`,
         { method: "POST" }
       ),
   },

@@ -152,7 +152,7 @@ def export_pdf(interview_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{interview_id}/push")
-async def push_summary(interview_id: int, db: Session = Depends(get_db)):
+async def push_summary(interview_id: int, base_url: str = "", db: Session = Depends(get_db)):
     summary = db.query(Summary).filter(
         Summary.interview_id == interview_id
     ).first()
@@ -163,11 +163,16 @@ async def push_summary(interview_id: int, db: Session = Depends(get_db)):
     codename = interview.candidate.codename if interview and interview.candidate else "Unknown"
     position_title = interview.position.title if interview and interview.position else "Unknown"
 
+    summary_url = ""
+    if base_url:
+        summary_url = f"{base_url.rstrip('/')}/interviews/{interview_id}/summary"
+
     result = await push_interview_result(
         candidate_codename=codename,
         position_title=position_title,
         recommendation=summary.recommendation,
         summary_text=summary.candidate_overview,
+        summary_url=summary_url,
     )
     return {"pushed": result}
 
