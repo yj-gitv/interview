@@ -3,11 +3,14 @@ import { useParams, Link } from "react-router-dom";
 import { api, Interview, InterviewSummary as SummaryType } from "../api/client";
 import ScoreBadge from "../components/ScoreBadge";
 
+type Tab = "performance" | "jd";
+
 export default function InterviewSummary() {
   const { id } = useParams<{ id: string }>();
   const [interview, setInterview] = useState<Interview | null>(null);
   const [summary, setSummary] = useState<SummaryType | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [tab, setTab] = useState<Tab>("performance");
 
   useEffect(() => {
     if (!id) return;
@@ -39,6 +42,28 @@ export default function InterviewSummary() {
     待定: "bg-yellow-100 text-yellow-800 border-yellow-200",
     不推荐: "bg-red-100 text-red-800 border-red-200",
   };
+
+  const tabCls = (t: Tab) =>
+    `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+      tab === t
+        ? "border-blue-600 text-blue-600"
+        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+    }`;
+
+  const alignment = summary ? JSON.parse(summary.jd_alignment || "[]") : [];
+  const statusColor: Record<string, string> = {
+    达成: "text-green-700 bg-green-100",
+    部分达成: "text-yellow-700 bg-yellow-100",
+    未达成: "text-red-700 bg-red-100",
+  };
+
+  const jdStats = alignment.reduce(
+    (acc: Record<string, number>, item: { status: string }) => {
+      acc[item.status] = (acc[item.status] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -97,110 +122,139 @@ export default function InterviewSummary() {
 
       {summary ? (
         <div className="space-y-6">
-          <div className="flex items-center gap-3">
-            <span
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold border ${
-                recStyle[summary.recommendation] || "bg-gray-100"
-              }`}
-            >
-              {summary.recommendation}
-            </span>
-          </div>
-
+          {/* Recommendation + Overview */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="font-semibold text-gray-900 mb-2">候选人概要</h3>
+            <div className="flex items-center gap-3 mb-3">
+              <span
+                className={`px-4 py-1.5 rounded-full text-sm font-semibold border ${
+                  recStyle[summary.recommendation] || "bg-gray-100"
+                }`}
+              >
+                {summary.recommendation}
+              </span>
+            </div>
             <p className="text-sm text-gray-700">{summary.candidate_overview}</p>
+            {summary.recommendation_reason && (
+              <p className="text-sm text-gray-500 mt-2 pt-2 border-t border-gray-100">
+                {summary.recommendation_reason}
+              </p>
+            )}
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <ScoreBadge score={summary.expression_score} label="表达清晰度" />
-            <ScoreBadge score={summary.case_richness_score} label="案例丰富度" />
-            <ScoreBadge score={summary.depth_score} label="思维深度" />
-            <ScoreBadge score={summary.self_awareness_score} label="自我认知" />
-            <ScoreBadge score={summary.enthusiasm_score} label="岗位热情" />
-            <ScoreBadge score={summary.overall_score} label="综合评分" />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-green-50 rounded-lg p-4">
-              <h4 className="font-medium text-green-800 mb-2">亮点</h4>
-              <ul className="text-sm text-green-700 space-y-1">
-                {JSON.parse(summary.highlights || "[]").map(
-                  (h: string, i: number) => (
-                    <li key={i}>• {h}</li>
-                  )
+          {/* Tab bar */}
+          <div className="border-b border-gray-200">
+            <nav className="flex gap-0 -mb-px">
+              <button className={tabCls("performance")} onClick={() => setTab("performance")}>
+                面试表现
+              </button>
+              <button className={tabCls("jd")} onClick={() => setTab("jd")}>
+                JD 匹配分析
+                {alignment.length > 0 && (
+                  <span className="ml-1.5 text-xs text-gray-400">
+                    ({alignment.length})
+                  </span>
                 )}
-              </ul>
-            </div>
-            <div className="bg-red-50 rounded-lg p-4">
-              <h4 className="font-medium text-red-800 mb-2">顾虑点</h4>
-              <ul className="text-sm text-red-700 space-y-1">
-                {JSON.parse(summary.concerns || "[]").map(
-                  (c: string, i: number) => (
-                    <li key={i}>• {c}</li>
-                  )
-                )}
-              </ul>
-            </div>
+              </button>
+            </nav>
           </div>
 
-          {(() => {
-            const alignment = JSON.parse(summary.jd_alignment || "[]");
-            if (alignment.length === 0) return null;
-            const statusColor: Record<string, string> = {
-              达成: "text-green-700 bg-green-100",
-              部分达成: "text-yellow-700 bg-yellow-100",
-              未达成: "text-red-700 bg-red-100",
-            };
-            return (
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-900 mb-3">
-                  JD 匹配分析
-                </h3>
-                <div className="space-y-2">
+          {/* Tab: Performance */}
+          {tab === "performance" && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+                <ScoreBadge score={summary.expression_score} label="表达清晰度" />
+                <ScoreBadge score={summary.case_richness_score} label="案例丰富度" />
+                <ScoreBadge score={summary.depth_score} label="思维深度" />
+                <ScoreBadge score={summary.self_awareness_score} label="自我认知" />
+                <ScoreBadge score={summary.enthusiasm_score} label="岗位热情" />
+                <ScoreBadge score={summary.overall_score} label="综合评分" />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-green-50 rounded-lg p-4">
+                  <h4 className="font-medium text-green-800 mb-2">亮点</h4>
+                  <ul className="text-sm text-green-700 space-y-1">
+                    {JSON.parse(summary.highlights || "[]").map(
+                      (h: string, i: number) => (
+                        <li key={i}>• {h}</li>
+                      )
+                    )}
+                  </ul>
+                </div>
+                <div className="bg-red-50 rounded-lg p-4">
+                  <h4 className="font-medium text-red-800 mb-2">顾虑点</h4>
+                  <ul className="text-sm text-red-700 space-y-1">
+                    {JSON.parse(summary.concerns || "[]").map(
+                      (c: string, i: number) => (
+                        <li key={i}>• {c}</li>
+                      )
+                    )}
+                  </ul>
+                </div>
+              </div>
+
+              {summary.next_steps && (
+                <div className="bg-blue-50 rounded-xl border border-blue-200 p-5">
+                  <h3 className="font-semibold text-blue-900 mb-2">后续建议</h3>
+                  <p className="text-sm text-blue-700">{summary.next_steps}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab: JD Alignment */}
+          {tab === "jd" && (
+            <div className="space-y-5">
+              {alignment.length > 0 && (
+                <div className="flex gap-3">
+                  {(["达成", "部分达成", "未达成"] as const).map((s) =>
+                    jdStats[s] ? (
+                      <span
+                        key={s}
+                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColor[s] || "bg-gray-100 text-gray-600"}`}
+                      >
+                        {s} {jdStats[s]}
+                      </span>
+                    ) : null,
+                  )}
+                </div>
+              )}
+
+              {alignment.length > 0 ? (
+                <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
                   {alignment.map(
                     (
                       item: { requirement: string; status: string; note: string },
                       i: number
                     ) => (
-                      <div key={i} className="flex items-start gap-3">
+                      <div key={i} className="flex items-start gap-3 px-5 py-3">
                         <span
-                          className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 ${
+                          className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 mt-0.5 ${
                             statusColor[item.status] ||
                             "text-gray-600 bg-gray-100"
                           }`}
                         >
                           {item.status}
                         </span>
-                        <div>
-                          <span className="text-sm font-medium text-gray-800">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-800">
                             {item.requirement}
-                          </span>
+                          </p>
                           {item.note && (
-                            <span className="text-sm text-gray-500 ml-2">
+                            <p className="text-sm text-gray-500 mt-0.5">
                               {item.note}
-                            </span>
+                            </p>
                           )}
                         </div>
                       </div>
                     )
                   )}
                 </div>
-              </div>
-            );
-          })()}
-
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="font-semibold text-gray-900 mb-2">推荐理由</h3>
-            <p className="text-sm text-gray-700">
-              {summary.recommendation_reason}
-            </p>
-          </div>
-
-          {summary.next_steps && (
-            <div className="bg-blue-50 rounded-xl border border-blue-200 p-5">
-              <h3 className="font-semibold text-blue-900 mb-2">后续建议</h3>
-              <p className="text-sm text-blue-700">{summary.next_steps}</p>
+              ) : (
+                <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-400">
+                  暂无 JD 匹配分析数据
+                </div>
+              )}
             </div>
           )}
         </div>

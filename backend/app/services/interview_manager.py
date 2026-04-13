@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from fastapi import WebSocket
 
 from app.config import settings
+from app.database import SessionLocal
+from app.models.transcript import Transcript
 from app.services.transcription import TranscriptionService, TranscriptSegment
 from app.services.audio_capture import AudioCaptureService
 from app.services.realtime_analysis import RealtimeAnalysisService
@@ -34,6 +36,32 @@ _sessions: dict[int, InterviewSession] = {}
 
 def get_session(interview_id: int) -> InterviewSession | None:
     return _sessions.get(interview_id)
+
+
+def _persist_transcript(
+    interview_id: int,
+    speaker: str,
+    raw_text: str,
+    sanitized_text: str,
+    timestamp: float,
+    duration: float = 0.0,
+):
+    db = SessionLocal()
+    try:
+        t = Transcript(
+            interview_id=interview_id,
+            speaker=speaker,
+            raw_text=raw_text,
+            sanitized_text=sanitized_text,
+            timestamp=timestamp,
+            duration=duration,
+        )
+        db.add(t)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 async def create_session(
@@ -91,11 +119,15 @@ async def start_audio(session: InterviewSession):
 
 
 async def stop_session(interview_id: int):
-    session = _sessions.pop(interview_id, None)
+    session = _sessions.get(interview_id)
     if session:
         session._running = False
         if session._audio_capture:
             session._audio_capture.stop()
+
+
+def remove_session(interview_id: int):
+    _sessions.pop(interview_id, None)
 
 
 async def process_audio_loop(session: InterviewSession):
@@ -118,6 +150,15 @@ async def process_audio_loop(session: InterviewSession):
 
             line = f"{speaker}: {sanitized}"
             session.transcript_lines.append(line)
+
+            _persist_transcript(
+                interview_id=session.interview_id,
+                speaker=speaker,
+                raw_text=seg.text,
+                sanitized_text=sanitized,
+                timestamp=round(elapsed, 1),
+                duration=seg.end - seg.start,
+            )
 
             await broadcast(session, {
                 "type": "transcript",
@@ -154,6 +195,14 @@ async def handle_manual_input(session: InterviewSession, speaker: str, text: str
 
     line = f"{speaker}: {sanitized}"
     session.transcript_lines.append(line)
+
+    _persist_transcript(
+        interview_id=session.interview_id,
+        speaker=speaker,
+        raw_text=text,
+        sanitized_text=sanitized,
+        timestamp=round(elapsed, 1),
+    )
 
     await broadcast(session, {
         "type": "transcript",
