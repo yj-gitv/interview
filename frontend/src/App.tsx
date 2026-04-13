@@ -6,6 +6,7 @@ import CandidateComparison from "./pages/CandidateComparison";
 import CandidateDetail from "./pages/CandidateDetail";
 import InterviewLive from "./pages/InterviewLive";
 import InterviewSummary from "./pages/InterviewSummary";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/candidates/:id" element={<CandidateDetail />} />
         <Route path="/interviews/:id/live" element={<InterviewLive />} />
         <Route path="/interviews/:id/summary" element={<InterviewSummary />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>
   );

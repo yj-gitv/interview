@@ -1,7 +1,8 @@
 import { NavLink, Outlet } from "react-router-dom";
 
 const navItems = [
-  { to: "/positions", label: "岗位管理" },
+  { to: "/positions", label: "岗位管理", icon: "📋" },
+  { to: "/settings", label: "系统设置", icon: "⚙️" },
 ];
 
 export default function Layout() {
@@ -18,17 +19,21 @@ export default function Layout() {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `block px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-blue-50 text-blue-700"
                     : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                 }`
               }
             >
+              <span className="text-base">{item.icon}</span>
               {item.label}
             </NavLink>
           ))}
         </nav>
+        <div className="p-3 border-t border-gray-200 text-xs text-gray-400 text-center">
+          v0.3.0
+        </div>
       </aside>
       <main className="flex-1 p-6 overflow-auto">
         <Outlet />

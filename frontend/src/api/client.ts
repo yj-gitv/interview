@@ -256,4 +256,25 @@ export const api = {
     get: (positionId: number) =>
       request<ComparisonEntry[]>(`/comparison/${positionId}`),
   },
+  settings: {
+    get: () =>
+      request<{
+        auto_cleanup_enabled: boolean;
+        auto_cleanup_days: number;
+        whisper_model: string;
+        audio_device_name: string;
+      }>("/settings"),
+    cleanup: (days?: number) =>
+      request<{
+        interviews: number;
+        transcripts: number;
+        evaluations: number;
+        summaries: number;
+        candidates: number;
+        matches: number;
+        files: string[];
+      }>(`/settings/cleanup${days ? `?days=${days}` : ""}`, {
+        method: "POST",
+      }),
+  },
 };

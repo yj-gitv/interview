@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, type ChangeEvent } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, Position, Candidate } from "../api/client";
+import { api, Position, Candidate, Interview } from "../api/client";
 
 export default function PositionDetail() {
   const { id } = useParams<{ id: string }>();
   const [position, setPosition] = useState<Position | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [interviews, setInterviews] = useState<Interview[]>([]);
   const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
@@ -17,6 +18,7 @@ export default function PositionDetail() {
     ]);
     setPosition(pos);
     setCandidates(cands);
+    api.interviews.list(undefined, pid).then(setInterviews).catch(() => setInterviews([]));
   }, [id]);
 
   useEffect(() => {
@@ -113,33 +115,55 @@ export default function PositionDetail() {
         </div>
       ) : (
         <div className="space-y-3">
-          {candidates.map((c) => (
-            <Link
-              key={c.id}
-              to={`/candidates/${c.id}`}
-              className="block bg-white rounded-xl border border-gray-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="font-medium text-gray-900">
-                    {c.codename}
-                  </span>
-                  <span className="text-sm text-gray-500 ml-3">
-                    {new Date(c.created_at).toLocaleDateString("zh-CN")}
-                  </span>
+          {candidates.map((c) => {
+            const civs = interviews.filter((iv) => iv.candidate_id === c.id);
+            const latest = civs[0];
+            const ivStatus: Record<string, { label: string; cls: string }> = {
+              in_progress: { label: "面试中", cls: "bg-blue-100 text-blue-700" },
+              completed: { label: "已面试", cls: "bg-purple-100 text-purple-700" },
+            };
+            const ivBadge = latest ? ivStatus[latest.status] : null;
+
+            return (
+              <Link
+                key={c.id}
+                to={`/candidates/${c.id}`}
+                className="block bg-white rounded-xl border border-gray-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900">
+                      {c.codename}
+                    </span>
+                    <span className="text-sm text-gray-500">
+                      {new Date(c.created_at).toLocaleDateString("zh-CN")}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {ivBadge && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ivBadge.cls}`}>
+                        {ivBadge.label}
+                      </span>
+                    )}
+                    {latest?.has_summary && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-700">
+                        有总结
+                      </span>
+                    )}
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        c.has_match
+                          ? "bg-green-100 text-green-700"
+                          : "bg-amber-100 text-amber-700 animate-pulse"
+                      }`}
+                    >
+                      {c.has_match ? "已评分" : "评分中..."}
+                    </span>
+                  </div>
                 </div>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    c.has_match
-                      ? "bg-green-100 text-green-700"
-                      : "bg-amber-100 text-amber-700 animate-pulse"
-                  }`}
-                >
-                  {c.has_match ? "已评分" : "评分中..."}
-                </span>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

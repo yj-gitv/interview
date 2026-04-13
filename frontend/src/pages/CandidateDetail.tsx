@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, Candidate, MatchScore, QuestionSet } from "../api/client";
+import { api, Candidate, MatchScore, QuestionSet, Interview } from "../api/client";
 import ScoreBadge from "../components/ScoreBadge";
 
 export default function CandidateDetail() {
@@ -8,6 +8,7 @@ export default function CandidateDetail() {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [match, setMatch] = useState<MatchScore | null>(null);
   const [questions, setQuestions] = useState<QuestionSet | null>(null);
+  const [interviews, setInterviews] = useState<Interview[]>([]);
   const [scoring, setScoring] = useState(false);
   const [generatingQ, setGeneratingQ] = useState(false);
 
@@ -16,6 +17,7 @@ export default function CandidateDetail() {
     const cid = Number(id);
     const cand = await api.candidates.get(cid);
     setCandidate(cand);
+    api.interviews.list(cid).then(setInterviews).catch(() => setInterviews([]));
     try {
       const m = await api.matches.get(cid);
       setMatch(m);
@@ -251,10 +253,12 @@ export default function CandidateDetail() {
         )}
       </div>
 
-      {/* Start Interview */}
+      {/* Interviews */}
       <div className="mt-8">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-900">面试</h3>
+          <h3 className="font-semibold text-gray-900">
+            面试记录 {interviews.length > 0 && <span className="text-gray-400 font-normal text-sm">({interviews.length})</span>}
+          </h3>
           <button
             onClick={async () => {
               if (!id || !match) return;
@@ -269,9 +273,61 @@ export default function CandidateDetail() {
             disabled={!match}
             className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 transition-colors"
           >
-            开始面试
+            新建面试
           </button>
         </div>
+
+        {interviews.length > 0 ? (
+          <div className="space-y-2">
+            {interviews.map((iv) => {
+              const statusMap: Record<string, { label: string; cls: string }> = {
+                scheduled: { label: "待开始", cls: "bg-gray-100 text-gray-600" },
+                in_progress: { label: "进行中", cls: "bg-blue-100 text-blue-700 animate-pulse" },
+                completed: { label: "已完成", cls: "bg-green-100 text-green-700" },
+                cancelled: { label: "已取消", cls: "bg-red-100 text-red-600" },
+              };
+              const st = statusMap[iv.status] || statusMap.scheduled;
+              const date = iv.started_at
+                ? new Date(iv.started_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+                : new Date(iv.created_at).toLocaleDateString("zh-CN");
+              const dur = iv.duration_seconds > 0 ? `${Math.round(iv.duration_seconds / 60)} 分钟` : "";
+
+              return (
+                <div key={iv.id} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${st.cls}`}>
+                      {st.label}
+                    </span>
+                    <span className="text-sm text-gray-700">{date}</span>
+                    {dur && <span className="text-xs text-gray-400">{dur}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {iv.status === "in_progress" && (
+                      <Link
+                        to={`/interviews/${iv.id}/live`}
+                        className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                      >
+                        进入面试
+                      </Link>
+                    )}
+                    {iv.status === "completed" && (
+                      <Link
+                        to={`/interviews/${iv.id}/summary`}
+                        className="text-xs px-2.5 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                      >
+                        {iv.has_summary ? "查看总结" : "生成总结"}
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="bg-white border border-gray-200 rounded-xl p-6 text-center text-gray-500 text-sm">
+            {match ? "点击「新建面试」开始" : "请先完成匹配评分"}
+          </div>
+        )}
       </div>
     </div>
   );
