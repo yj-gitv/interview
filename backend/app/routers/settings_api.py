@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import get_db, is_encrypted
 from app.config import settings
 from app.services.data_cleanup import cleanup_old_data
 
@@ -52,6 +52,7 @@ def get_settings():
         "feishu_webhook_url": _mask_url(settings.feishu_webhook_url),
         "openai_base_url": settings.openai_base_url,
         "openai_api_key_set": bool(settings.openai_api_key),
+        "db_encrypted": is_encrypted(),
     }
 
 

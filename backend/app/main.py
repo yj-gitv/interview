@@ -3,6 +3,7 @@ import asyncio
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
@@ -42,7 +43,22 @@ app.include_router(settings_router)
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok"}
+    from app.database import is_encrypted
+
+    try:
+        from app.database import SessionLocal
+
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        db_status = "ok"
+    except Exception as e:
+        db_status = f"error: {e}"
+    return {
+        "status": "ok" if db_status == "ok" else "degraded",
+        "database": db_status,
+        "encrypted": is_encrypted(),
+    }
 
 
 @app.websocket("/ws/interview/{interview_id}")

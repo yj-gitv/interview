@@ -12,6 +12,7 @@ from app.services.transcription import TranscriptionService, TranscriptSegment
 from app.services.audio_capture import AudioCaptureService
 from app.services.realtime_analysis import RealtimeAnalysisService
 from app.services.pii_masking import PIIMasker
+from app.services.speaker_diarization import EnergyDiarizer, create_diarizer
 
 
 @dataclass
@@ -26,6 +27,7 @@ class InterviewSession:
     _transcription: TranscriptionService | None = None
     _analysis: RealtimeAnalysisService | None = None
     _masker: PIIMasker | None = None
+    _diarizer: EnergyDiarizer | None = None
     _websockets: list[WebSocket] = field(default_factory=list)
     _audio_queue: asyncio.Queue | None = None
     _running: bool = False
@@ -92,6 +94,13 @@ async def create_session(
             compute_type="int8",
         )
 
+    if settings.diarization_enabled:
+        session._diarizer = create_diarizer(
+            method=settings.diarization_method,
+            energy_threshold=settings.diarization_energy_threshold,
+            sample_rate=settings.audio_sample_rate,
+        )
+
     _sessions[interview_id] = session
     return session
 
@@ -146,7 +155,10 @@ async def process_audio_loop(session: InterviewSession):
         for seg in segments:
             elapsed = time.time() - session.start_time
             sanitized = session._masker.mask(seg.text) if session._masker else seg.text
-            speaker = "candidate"
+            if session._diarizer and isinstance(session._diarizer, EnergyDiarizer):
+                speaker = session._diarizer.process_chunk(audio)
+            else:
+                speaker = "candidate"
 
             line = f"{speaker}: {sanitized}"
             session.transcript_lines.append(line)
