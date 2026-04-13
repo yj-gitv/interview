@@ -69,12 +69,28 @@ export default function InterviewSummary() {
             {generating ? "生成中..." : summary ? "重新生成" : "生成总结"}
           </button>
           {summary && (
-            <button
-              onClick={handleExportPdf}
-              className="px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700"
-            >
-              导出 PDF
-            </button>
+            <>
+              <button
+                onClick={handleExportPdf}
+                className="px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700"
+              >
+                导出 PDF
+              </button>
+              <button
+                onClick={async () => {
+                  if (!id) return;
+                  const result = await api.summaries.push(Number(id));
+                  alert(
+                    result.pushed.dingtalk || result.pushed.feishu
+                      ? "推送成功"
+                      : "未配置推送渠道"
+                  );
+                }}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+              >
+                推送结果
+              </button>
+            </>
           )}
         </div>
       </div>

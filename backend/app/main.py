@@ -8,10 +8,12 @@ from app.config import settings
 from app.database import engine
 from app.models import Base
 from app.routers.candidates import router as candidates_router
+from app.routers.comparison import router as comparison_router
 from app.routers.interviews import router as interviews_router
 from app.routers.matches import router as matches_router
 from app.routers.positions import router as positions_router
 from app.routers.summaries import router as summaries_router
+from app.routers.settings_api import router as settings_router
 
 app = FastAPI(title="Interview Assistant", version="0.1.0")
 
@@ -34,6 +36,8 @@ app.include_router(candidates_router)
 app.include_router(matches_router)
 app.include_router(interviews_router)
 app.include_router(summaries_router)
+app.include_router(comparison_router)
+app.include_router(settings_router)
 
 
 @app.get("/api/health")

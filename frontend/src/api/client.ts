@@ -136,6 +136,33 @@ export type WsMessage =
   | { type: "error"; message: string }
   | { type: "question_switched"; current_question_index: number };
 
+export interface ComparisonEntry {
+  candidate_id: number;
+  codename: string;
+  created_at: string;
+  match: {
+    experience_score: number;
+    industry_score: number;
+    competency_score: number;
+    potential_score: number;
+    overall_score: number;
+    recommendation: string;
+    highlights: string[];
+    risks: string[];
+  } | null;
+  interview_summary: {
+    expression_score: number;
+    case_richness_score: number;
+    depth_score: number;
+    self_awareness_score: number;
+    enthusiasm_score: number;
+    overall_score: number;
+    recommendation: string;
+    highlights: string[];
+    concerns: string[];
+  } | null;
+}
+
 export const api = {
   positions: {
     list: () => request<Position[]>("/positions"),
@@ -219,5 +246,14 @@ export const api = {
       }),
     exportPdf: (interviewId: number) =>
       `${BASE}/summaries/${interviewId}/pdf`,
+    push: (interviewId: number) =>
+      request<{ pushed: { dingtalk: boolean; feishu: boolean } }>(
+        `/summaries/${interviewId}/push`,
+        { method: "POST" }
+      ),
+  },
+  comparison: {
+    get: (positionId: number) =>
+      request<ComparisonEntry[]>(`/comparison/${positionId}`),
   },
 };

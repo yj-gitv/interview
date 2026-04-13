@@ -12,6 +12,7 @@ from app.models.transcript import Transcript
 from app.models.summary import Summary
 from app.services.summary_gen import SummaryGenService
 from app.services.pdf_export import PDFExportService
+from app.services.webhook_push import push_interview_result
 
 router = APIRouter(prefix="/api/summaries", tags=["summaries"])
 
@@ -148,6 +149,27 @@ def export_pdf(interview_id: int, db: Session = Depends(get_db)):
         media_type="application/pdf",
         filename=f"{codename}_{position_title}_面试总结.pdf",
     )
+
+
+@router.post("/{interview_id}/push")
+async def push_summary(interview_id: int, db: Session = Depends(get_db)):
+    summary = db.query(Summary).filter(
+        Summary.interview_id == interview_id
+    ).first()
+    if not summary:
+        raise HTTPException(status_code=404, detail="Summary not found")
+
+    interview = db.get(Interview, interview_id)
+    codename = interview.candidate.codename if interview and interview.candidate else "Unknown"
+    position_title = interview.position.title if interview and interview.position else "Unknown"
+
+    result = await push_interview_result(
+        candidate_codename=codename,
+        position_title=position_title,
+        recommendation=summary.recommendation,
+        summary_text=summary.candidate_overview,
+    )
+    return {"pushed": result}
 
 
 def _summary_to_dict(summary: Summary) -> dict:

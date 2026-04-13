@@ -78,22 +78,32 @@ export default function PositionDetail() {
         <h3 className="font-semibold text-gray-900">
           候选人 ({candidates.length})
         </h3>
-        <label
-          className={`px-4 py-2 text-sm font-medium rounded-lg cursor-pointer transition-colors ${
-            uploading
-              ? "bg-gray-300 text-gray-500"
-              : "bg-blue-600 text-white hover:bg-blue-700"
-          }`}
-        >
-          {uploading ? "上传中..." : "上传简历"}
-          <input
-            type="file"
-            accept=".pdf,.docx"
-            onChange={handleUpload}
-            disabled={uploading}
-            className="hidden"
-          />
-        </label>
+        <div className="flex items-center gap-2">
+          {candidates.length >= 2 && (
+            <Link
+              to={`/positions/${id}/compare`}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+            >
+              对比候选人
+            </Link>
+          )}
+          <label
+            className={`px-4 py-2 text-sm font-medium rounded-lg cursor-pointer transition-colors ${
+              uploading
+                ? "bg-gray-300 text-gray-500"
+                : "bg-blue-600 text-white hover:bg-blue-700"
+            }`}
+          >
+            {uploading ? "上传中..." : "上传简历"}
+            <input
+              type="file"
+              accept=".pdf,.docx"
+              onChange={handleUpload}
+              disabled={uploading}
+              className="hidden"
+            />
+          </label>
+        </div>
       </div>
 
       {candidates.length === 0 ? (
