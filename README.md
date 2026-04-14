@@ -2,21 +2,104 @@
 
 本地运行的 Web 面试辅助工具，覆盖从简历筛选到面试总结的全流程。
 
-## 快速开始（Docker）
+---
 
-最简单的方式，只需要安装 [Docker](https://www.docker.com/products/docker-desktop/)。
+## 给非技术用户的一键部署指南
 
+> 整个过程大约 10-15 分钟，只需要跟着下面的步骤操作，不需要写任何代码。
+
+### 第一步：安装 Docker Desktop
+
+Docker 是一个"容器"工具，可以把整个应用打包运行，你不需要理解它的原理，只需要安装并启动。
+
+1. 打开 https://www.docker.com/products/docker-desktop/ ，点击 **Download for Windows**（Mac 用户选 Mac 版本）
+2. 下载完成后双击安装程序，一路点 **Next / 下一步**，直到安装完成
+3. 安装完成后 **重启电脑**
+4. 重启后桌面会出现 **Docker Desktop** 图标，**双击启动它**
+5. 等待左下角状态变为绿色 **"Engine running"**，表示 Docker 已就绪
+
+> **Windows 用户注意**：如果提示需要启用 WSL 2，按照弹窗提示操作即可，通常只需重启一次。
+
+### 第二步：下载项目文件
+
+**方式 A（推荐，最简单）**：
+1. 打开 https://github.com/yj-gitv/interview/archive/refs/heads/main.zip
+2. 浏览器会自动下载一个 zip 文件
+3. 右键点击下载的 zip 文件 → **全部解压缩** → 选择一个你能找到的位置（例如桌面）
+4. 解压后你会得到一个 `interview-main` 文件夹
+
+**方式 B（如果你已安装 Git）**：
 ```bash
 git clone https://github.com/yj-gitv/interview.git
 cd interview
-cp .env.example .env
-# 编辑 .env，填入你的 LLM API Key
-docker compose up --build
 ```
 
-打开浏览器访问 **http://localhost:3000**
+### 第三步：配置 API Key
 
-> 修改 `.env` 中的 `APP_PORT` 可以换端口。
+1. 进入解压后的 `interview-main` 文件夹（或 `interview` 文件夹）
+2. 找到文件 `.env.example`，**复制一份**，将副本重命名为 `.env`
+   - Windows：右键 `.env.example` → 复制 → 粘贴 → 将 `.env.example - 副本` 改名为 `.env`
+   - 如果看不到 `.env.example`，在文件管理器顶部点 **查看** → 勾选 **隐藏的项目**
+3. 用**记事本**打开 `.env` 文件
+4. 修改以下两行（第 2 行和第 3 行）：
+   ```
+   INTERVIEW_OPENAI_API_KEY=把这里替换成你的API密钥
+   INTERVIEW_OPENAI_BASE_URL=把这里替换成你的API地址
+   ```
+   例如，如果你使用 OpenAI 官方 API：
+   ```
+   INTERVIEW_OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+   INTERVIEW_OPENAI_BASE_URL=https://api.openai.com/v1
+   ```
+5. 保存并关闭
+
+> **重要**：`.env` 文件包含你的 API 密钥，请勿分享给他人。
+
+### 第四步：启动应用
+
+1. **打开终端 / 命令提示符**
+   - Windows：在 `interview-main` 文件夹内，按住 Shift 键，右键空白处 → **在此处打开 PowerShell 窗口**
+   - Mac：打开"终端"应用，输入 `cd ` 然后把文件夹拖进终端窗口，按回车
+2. 输入以下命令并按回车：
+   ```bash
+   docker compose up --build
+   ```
+3. 首次启动会下载依赖，**需要等待约 10-20 分钟**（取决于网速），请耐心等待
+4. 当你看到类似以下内容时，说明启动成功：
+   ```
+   frontend-1  | ... start worker process ...
+   backend-1   | INFO:     Application startup complete.
+   ```
+
+### 第五步：开始使用
+
+1. 打开浏览器（推荐 Chrome），访问 **http://localhost:3000**
+2. 你会看到面试助手的界面，可以开始使用了！
+
+### 日常使用
+
+| 操作 | 方法 |
+|------|------|
+| **启动** | 确保 Docker Desktop 已运行，然后在项目文件夹打开终端，输入 `docker compose up -d` |
+| **停止** | 在终端输入 `docker compose down` |
+| **查看日志** | 在终端输入 `docker compose logs -f` |
+| **更新版本** | 重新下载 zip 解压（保留旧的 `.env` 文件），然后 `docker compose up --build -d` |
+
+### 常见问题
+
+**Q：启动时提示 "Docker Desktop is not running"**
+A：双击桌面上的 Docker Desktop 图标，等待状态变绿后重试。
+
+**Q：浏览器打开 localhost:3000 显示空白或报错**
+A：回到终端检查是否有红色错误信息。最常见的原因是 `.env` 文件中的 API Key 填写有误。
+
+**Q：实时转录 / 语音识别不工作**
+A：点击"启动音频"后，浏览器会弹出麦克风授权，请点击**允许**。确保使用 Chrome 浏览器。
+
+**Q：想换端口（3000 被占用）**
+A：在 `.env` 文件中取消注释并修改 `APP_PORT=8080`（改成你想要的端口号）。
+
+---
 
 ## 手动部署（开发模式）
 
