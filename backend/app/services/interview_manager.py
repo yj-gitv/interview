@@ -15,7 +15,7 @@ from app.services.transcription import TranscriptionService, TranscriptSegment
 from app.services.audio_capture import AudioCaptureService
 from app.services.realtime_analysis import RealtimeAnalysisService
 from app.services.pii_masking import PIIMasker
-from app.services.speaker_diarization import EnergyDiarizer, create_diarizer
+from app.services.speaker_diarization import VoiceprintDiarizer, create_diarizer
 
 
 @dataclass
@@ -30,7 +30,7 @@ class InterviewSession:
     _transcription: TranscriptionService | None = None
     _analysis: RealtimeAnalysisService | None = None
     _masker: PIIMasker | None = None
-    _diarizer: EnergyDiarizer | None = None
+    _diarizer: VoiceprintDiarizer | None = None
     _websockets: list[WebSocket] = field(default_factory=list)
     _audio_queue: asyncio.Queue | None = None
     _running: bool = False
@@ -175,11 +175,18 @@ async def process_audio_loop(session: InterviewSession):
             continue
 
         print(f"[audio_loop] Got {len(segments)} segments", flush=True)
+        sample_rate = settings.audio_sample_rate
         for seg in segments:
             elapsed = time.time() - session.start_time
             sanitized = session._masker.mask(seg.text) if session._masker else seg.text
-            if session._diarizer and isinstance(session._diarizer, EnergyDiarizer):
-                speaker = session._diarizer.process_chunk(audio)
+            if session._diarizer and isinstance(session._diarizer, VoiceprintDiarizer):
+                start_idx = int(seg.start * sample_rate)
+                end_idx = int(seg.end * sample_rate)
+                audio_slice = audio[max(0, start_idx):min(len(audio), end_idx)]
+                if len(audio_slice) > 0:
+                    speaker = session._diarizer.identify_speaker(audio_slice)
+                else:
+                    speaker = "candidate"
             else:
                 speaker = "candidate"
 
