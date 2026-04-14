@@ -3,7 +3,7 @@ services:
     build: ./backend
     env_file: .env
     volumes:
-      - db_data:/app
+      - db_data:/app/data
       - uploads:/app/uploads
       - exports:/app/exports
     expose:

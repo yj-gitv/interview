@@ -1,4 +1,23 @@
+import io
+
 import pytest
+
+
+class TestExtractJdText:
+    def test_extracts_txt(self, client):
+        resp = client.post(
+            "/api/positions/extract-text",
+            files={"file": ("jd.txt", b"hello JD", "text/plain")},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["text"] == "hello JD"
+
+    def test_rejects_bad_extension(self, client):
+        resp = client.post(
+            "/api/positions/extract-text",
+            files={"file": ("x.md", b"x", "text/plain")},
+        )
+        assert resp.status_code == 400
 
 
 class TestCreatePosition:

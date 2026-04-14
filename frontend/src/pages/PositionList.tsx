@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, type ChangeEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, Position } from "../api/client";
 
@@ -8,20 +8,57 @@ export default function PositionList() {
   const [title, setTitle] = useState("");
   const [department, setDepartment] = useState("");
   const [jdText, setJdText] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const jdFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.positions.list().then(setPositions);
   }, []);
 
+  const handleJdFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setFormError(null);
+    setImporting(true);
+    try {
+      const { text } = await api.positions.extractJdText(file);
+      setJdText(text);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setFormError(
+        msg.includes("400")
+          ? "无法从该文件提取文本，请换用 .txt / .pdf / .docx 或粘贴 JD"
+          : `导入失败：${msg}`
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleCreate = async () => {
-    if (!title.trim() || !jdText.trim()) return;
-    await api.positions.create({ title, department, jd_text: jdText });
-    setTitle("");
-    setDepartment("");
-    setJdText("");
-    setShowForm(false);
-    const updated = await api.positions.list();
-    setPositions(updated);
+    setFormError(null);
+    if (!title.trim() || !jdText.trim()) {
+      setFormError("请填写岗位名称，并填写或导入岗位描述（JD）");
+      return;
+    }
+    setCreating(true);
+    try {
+      await api.positions.create({ title, department, jd_text: jdText });
+      setTitle("");
+      setDepartment("");
+      setJdText("");
+      setShowForm(false);
+      const updated = await api.positions.list();
+      setPositions(updated);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setFormError(`创建失败：${msg}`);
+    } finally {
+      setCreating(false);
+    }
   };
 
   const statusLabel: Record<string, string> = {
@@ -41,7 +78,12 @@ export default function PositionList() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-gray-900">岗位管理</h2>
         <button
-          onClick={() => setShowForm(!showForm)}
+          type="button"
+          onClick={() => {
+            const next = !showForm;
+            setShowForm(next);
+            if (next) setFormError(null);
+          }}
           className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
         >
           {showForm ? "取消" : "新建岗位"}
@@ -50,6 +92,11 @@ export default function PositionList() {
 
       {showForm && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6 space-y-4">
+          {formError && (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {formError}
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               岗位名称
@@ -73,22 +120,43 @@ export default function PositionList() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              岗位描述（JD）
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-gray-700">
+                岗位描述（JD）
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={jdFileInputRef}
+                  type="file"
+                  accept=".txt,.pdf,.docx"
+                  className="hidden"
+                  onChange={handleJdFile}
+                />
+                <button
+                  type="button"
+                  onClick={() => jdFileInputRef.current?.click()}
+                  disabled={importing}
+                  className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                >
+                  {importing ? "导入中…" : "从文件导入"}
+                </button>
+              </div>
+            </div>
             <textarea
               value={jdText}
               onChange={(e) => setJdText(e.target.value)}
               rows={6}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="粘贴完整的岗位描述..."
+              placeholder="粘贴完整的岗位描述，或使用「从文件导入」（.txt / .pdf / .docx）"
             />
           </div>
           <button
+            type="button"
             onClick={handleCreate}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+            disabled={creating}
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
-            创建
+            {creating ? "创建中…" : "创建"}
           </button>
         </div>
       )}

@@ -1,11 +1,54 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+import tempfile
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.position import Position, PositionStatus
 from app.schemas.position import PositionCreate, PositionUpdate, PositionResponse
+from app.services.resume_parser import ResumeParser
 
 router = APIRouter(prefix="/api/positions", tags=["positions"])
+
+
+@router.post("/extract-text", status_code=status.HTTP_200_OK)
+async def extract_text_from_jd_file(file: UploadFile = File(...)):
+    """从 JD 文件（.txt / .pdf / .docx）提取纯文本，供新建岗位表单使用。"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+
+    file_ext = (
+        file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    )
+    if file_ext not in ResumeParser.SUPPORTED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported type .{file_ext}. Use: txt, pdf, docx",
+        )
+
+    suffix = f".{file_ext}"
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    try:
+        with open(tmp_path, "wb") as out:
+            out.write(await file.read())
+
+        parser = ResumeParser()
+        try:
+            result = parser.parse(tmp_path)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        if not result.raw_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="File contains no extractable text. Try another format or paste JD manually.",
+            )
+        return {"text": result.raw_text}
+    finally:
+        if os.path.isfile(tmp_path):
+            os.remove(tmp_path)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=PositionResponse)

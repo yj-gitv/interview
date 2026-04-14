@@ -3,7 +3,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libsndfile1 ffmpeg && \
+    apt-get install -y --no-install-recommends \
+        libsndfile1 ffmpeg libportaudio2 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -11,7 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p uploads exports
+RUN mkdir -p data uploads exports
+
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')"
 
 EXPOSE 8000
 

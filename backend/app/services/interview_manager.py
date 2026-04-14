@@ -1,11 +1,14 @@
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 from app.database import SessionLocal
 from app.models.transcript import Transcript
 from app.services.transcription import TranscriptionService, TranscriptSegment
@@ -102,6 +105,9 @@ async def create_session(
         )
 
     _sessions[interview_id] = session
+    print(f"[interview_manager] Session created for interview {interview_id} "
+          f"(transcription={session._transcription is not None}, "
+          f"diarizer={session._diarizer is not None})", flush=True)
     return session
 
 
@@ -140,6 +146,9 @@ def remove_session(interview_id: int):
 
 
 async def process_audio_loop(session: InterviewSession):
+    print(f"[audio_loop] Started for interview {session.interview_id}", flush=True)
+    loop = asyncio.get_event_loop()
+
     while session._running:
         try:
             audio = await asyncio.wait_for(
@@ -149,9 +158,23 @@ async def process_audio_loop(session: InterviewSession):
             continue
 
         if session._transcription is None:
+            print("[audio_loop] No transcription service, skipping", flush=True)
             continue
 
-        segments = session._transcription.transcribe(audio)
+        print(f"[audio_loop] Transcribing {len(audio)} samples…", flush=True)
+        try:
+            segments = await loop.run_in_executor(
+                None, session._transcription.transcribe, audio
+            )
+        except Exception as e:
+            print(f"[audio_loop] Transcription error: {e}", flush=True)
+            await broadcast(session, {
+                "type": "error",
+                "message": f"转录失败: {e}",
+            })
+            continue
+
+        print(f"[audio_loop] Got {len(segments)} segments", flush=True)
         for seg in segments:
             elapsed = time.time() - session.start_time
             sanitized = session._masker.mask(seg.text) if session._masker else seg.text

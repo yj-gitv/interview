@@ -96,7 +96,7 @@ def get_summary(interview_id: int, db: Session = Depends(get_db)):
     return _summary_to_dict(summary)
 
 
-@router.post("/{interview_id}/pdf")
+@router.get("/{interview_id}/pdf")
 def export_pdf(interview_id: int, db: Session = Depends(get_db)):
     summary = db.query(Summary).filter(
         Summary.interview_id == interview_id

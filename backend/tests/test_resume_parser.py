@@ -24,13 +24,23 @@ class TestDOCXParsing:
         assert "运营经理" in result.raw_text
 
 
+class TestTXTParsing:
+    def test_extracts_text_from_txt(self, tmp_path):
+        path = tmp_path / "jd.txt"
+        path.write_text("岗位职责\n负责增长", encoding="utf-8")
+        parser = ResumeParser()
+        result = parser.parse(str(path))
+        assert "负责增长" in result.raw_text
+        assert result.file_type == "txt"
+
+
 class TestUnsupportedFormat:
     def test_raises_for_unsupported(self, tmp_path):
-        txt_path = tmp_path / "resume.txt"
-        txt_path.write_text("some text")
+        bad_path = tmp_path / "resume.md"
+        bad_path.write_text("x")
         parser = ResumeParser()
         with pytest.raises(ValueError, match="Unsupported"):
-            parser.parse(str(txt_path))
+            parser.parse(str(bad_path))
 
 
 class TestParseResult:

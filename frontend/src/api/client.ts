@@ -167,6 +167,19 @@ export const api = {
   positions: {
     list: () => request<Position[]>("/positions"),
     get: (id: number) => request<Position>(`/positions/${id}`),
+    extractJdText: async (file: File): Promise<{ text: string }> => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${BASE}/positions/extract-text`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Extract failed ${res.status}: ${body}`);
+      }
+      return res.json();
+    },
     create: (data: Partial<Position>) =>
       request<Position>("/positions", {
         method: "POST",

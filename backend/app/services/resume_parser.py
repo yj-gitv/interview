@@ -10,7 +10,7 @@ class ParseResult:
 
 
 class ResumeParser:
-    SUPPORTED_TYPES = {"pdf", "docx"}
+    SUPPORTED_TYPES = {"pdf", "docx", "txt"}
 
     def parse(self, file_path: str) -> ParseResult:
         file_name = os.path.basename(file_path)
@@ -23,8 +23,10 @@ class ResumeParser:
 
         if ext == "pdf":
             text = self._parse_pdf(file_path)
-        else:
+        elif ext == "docx":
             text = self._parse_docx(file_path)
+        else:
+            text = self._parse_txt(file_path)
 
         return ParseResult(raw_text=text, file_name=file_name, file_type=ext)
 
@@ -44,3 +46,7 @@ class ResumeParser:
         doc = Document(file_path)
         paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
         return "\n".join(paragraphs).strip()
+
+    def _parse_txt(self, file_path: str) -> str:
+        with open(file_path, encoding="utf-8", errors="replace") as f:
+            return f.read().strip()

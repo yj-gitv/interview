@@ -14,6 +14,25 @@ interface Suggestion {
   isNew: boolean;
 }
 
+const TARGET_SAMPLE_RATE = 16000;
+const CHUNK_SECONDS = 6;
+const CHUNK_SIZE = TARGET_SAMPLE_RATE * CHUNK_SECONDS;
+
+function downsample(buffer: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (fromRate === toRate) return buffer;
+  const ratio = fromRate / toRate;
+  const newLength = Math.round(buffer.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const srcIndex = i * ratio;
+    const lo = Math.floor(srcIndex);
+    const hi = Math.min(lo + 1, buffer.length - 1);
+    const frac = srcIndex - lo;
+    result[i] = buffer[lo] * (1 - frac) + buffer[hi] * frac;
+  }
+  return result;
+}
+
 export default function InterviewLive() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -29,6 +48,8 @@ export default function InterviewLive() {
   const [instantComment, setInstantComment] = useState("");
   const [connected, setConnected] = useState(false);
   const [audioActive, setAudioActive] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const [manualText, setManualText] = useState("");
   const [manualSpeaker, setManualSpeaker] = useState<
     "interviewer" | "candidate"
@@ -37,6 +58,9 @@ export default function InterviewLive() {
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number>();
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -83,6 +107,10 @@ export default function InterviewLive() {
     ws.onclose = () => setConnected(false);
     ws.onmessage = (event) => {
       const msg: WsMessage = JSON.parse(event.data);
+      if (msg.type === "error") {
+        setAudioError((msg as { type: "error"; message: string }).message);
+        return;
+      }
       if (msg.type === "transcript") {
         setTranscripts((prev) => [
           ...prev,
@@ -117,28 +145,116 @@ export default function InterviewLive() {
   }, [id]);
 
   useEffect(() => {
+    if (!id || !interview) return;
+    if (interview.status === "in_progress" && !connected && !wsRef.current) {
+      api.interviews.createSession(Number(id)).catch(() => {}).then(() => {
+        connectWs();
+        if (!timerRef.current) {
+          timerRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000);
+        }
+      });
+    }
+  }, [id, interview, connected, connectWs]);
+
+  useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcripts]);
 
   const handleStartInterview = async () => {
     if (!id) return;
-    await api.interviews.createSession(Number(id));
-    await api.interviews.start(Number(id));
-    setInterview((prev) =>
-      prev ? { ...prev, status: "in_progress" } : prev
-    );
-    connectWs();
-    timerRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000);
+    setStarting(true);
+    setAudioError(null);
+    try {
+      await api.interviews.createSession(Number(id));
+      await api.interviews.start(Number(id));
+      setInterview((prev) =>
+        prev ? { ...prev, status: "in_progress" } : prev
+      );
+      connectWs();
+      timerRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAudioError(`开始面试失败：${msg}`);
+    } finally {
+      setStarting(false);
+    }
   };
 
-  const handleStartAudio = () => {
-    wsRef.current?.send(JSON.stringify({ type: "start_audio" }));
-    setAudioActive(true);
-  };
+  const stopBrowserAudio = useCallback(() => {
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+  }, []);
+
+  const handleStartAudio = useCallback(async () => {
+    setAudioError(null);
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setAudioError("WebSocket 未连接，请先开始面试");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+      const nativeSR = audioCtx.sampleRate;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      let pcmBuffer: Float32Array[] = [];
+      let pcmLength = 0;
+
+      processor.onaudioprocess = (e) => {
+        const raw = e.inputBuffer.getChannelData(0);
+        const resampled = downsample(raw, nativeSR, TARGET_SAMPLE_RATE);
+        pcmBuffer.push(new Float32Array(resampled));
+        pcmLength += resampled.length;
+
+        if (pcmLength >= CHUNK_SIZE) {
+          const merged = new Float32Array(pcmLength);
+          let offset = 0;
+          for (const buf of pcmBuffer) {
+            merged.set(buf, offset);
+            offset += buf.length;
+          }
+          pcmBuffer = [];
+          pcmLength = 0;
+
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(merged.buffer);
+          }
+        }
+      };
+
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+
+      ws.send(JSON.stringify({ type: "start_browser_audio" }));
+      setAudioActive(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAudioError(`麦克风访问失败：${msg}`);
+    }
+  }, []);
 
   const handleEndInterview = async () => {
     if (!id) return;
     if (timerRef.current) clearInterval(timerRef.current);
+    stopBrowserAudio();
     await api.interviews.end(Number(id));
     await api.interviews.stopSession(Number(id));
     wsRef.current?.close();
@@ -212,6 +328,11 @@ export default function InterviewLive() {
               录音中
             </span>
           )}
+          {audioError && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800">
+              {audioError}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-lg text-gray-700">
@@ -220,9 +341,10 @@ export default function InterviewLive() {
           {interview.status !== "in_progress" ? (
             <button
               onClick={handleStartInterview}
-              className="px-4 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"
+              disabled={starting}
+              className="px-4 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
             >
-              开始面试
+              {starting ? "准备中…" : "开始面试"}
             </button>
           ) : (
             <>

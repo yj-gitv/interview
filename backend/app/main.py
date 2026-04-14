@@ -1,7 +1,11 @@
 import json
 import asyncio
+import logging
 
+import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -79,7 +83,18 @@ async def websocket_interview(websocket: WebSocket, interview_id: int):
 
     try:
         while True:
-            data = await websocket.receive_text()
+            message = await websocket.receive()
+
+            if "bytes" in message and message["bytes"]:
+                audio_data = np.frombuffer(message["bytes"], dtype=np.float32)
+                if session._audio_queue and session._running:
+                    session._audio_queue.put_nowait(audio_data)
+                    print(f"[ws] Queued audio: {len(audio_data)} samples, max_amp={float(np.max(np.abs(audio_data))):.4f}", flush=True)
+                continue
+
+            data = message.get("text", "")
+            if not data:
+                continue
             msg = json.loads(data)
 
             if msg.get("type") == "manual_input":
@@ -97,5 +112,14 @@ async def websocket_interview(websocket: WebSocket, interview_id: int):
             elif msg.get("type") == "start_audio":
                 asyncio.create_task(interview_manager.start_audio(session))
                 asyncio.create_task(interview_manager.process_audio_loop(session))
+            elif msg.get("type") == "start_browser_audio":
+                session._running = True
+                print("[ws] start_browser_audio received, launching process_audio_loop", flush=True)
+                asyncio.create_task(interview_manager.process_audio_loop(session))
+                await interview_manager.broadcast(session, {
+                    "type": "browser_audio_ready",
+                    "message": "后端已就绪，开始接收浏览器音频",
+                })
     except WebSocketDisconnect:
+        session._running = False
         interview_manager.remove_websocket(session, websocket)
