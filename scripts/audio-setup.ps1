@@ -163,18 +163,45 @@ if ($Action -eq "setup") {
         Write-Host "  WARN: Could not connect to VoiceMeeter API (code $login)" -ForegroundColor Yellow
     } else {
         Start-Sleep -Seconds 1
-        # A1 output -> physical speakers (try Realtek first, then any non-VM device)
-        $r = [VmRemote]::SetParamStr("Bus[0].device.wdm", "Realtek")
-        if ($r -ne 0) {
-            [VmRemote]::SetParamStr("Bus[0].device.wdm", "Speakers")
+
+        # Hardware Input 1 -> physical microphone (auto-detect)
+        $micNames = @("Microphone Array", "Mic", "Realtek", "USB")
+        $micSet = $false
+        foreach ($mic in $micNames) {
+            $r = [VmRemote]::SetParamStr("Strip[0].device.wdm", $mic)
+            if ($r -eq 0) {
+                Write-Host "  Microphone: $mic" -ForegroundColor Green
+                $micSet = $true
+                break
+            }
+        }
+        if (-not $micSet) {
+            Write-Host "  WARN: Could not auto-detect microphone, please set manually in VoiceMeeter" -ForegroundColor Yellow
+        }
+
+        # A1 output -> physical speakers (try common names)
+        $spkNames = @("Realtek", "Speakers", "Headphones", "USB")
+        foreach ($spk in $spkNames) {
+            $r = [VmRemote]::SetParamStr("Bus[0].device.wdm", $spk)
+            if ($r -eq 0) {
+                Write-Host "  Speakers: $spk" -ForegroundColor Green
+                break
+            }
         }
         [VmRemote]::SetParamFloat("Bus[0].Mute", 0.0) | Out-Null
-        # Virtual input (腾讯会议声音) -> A1 (hear) + B1 (capture)
-        [VmRemote]::SetParamFloat("Strip[2].A1", 1.0) | Out-Null
-        [VmRemote]::SetParamFloat("Strip[2].B1", 1.0) | Out-Null
-        # Hardware input (麦克风) -> A1 + B1
+
+        # Hardware input (mic) -> A1 (hear) + B1 (capture), unmuted
         [VmRemote]::SetParamFloat("Strip[0].A1", 1.0) | Out-Null
         [VmRemote]::SetParamFloat("Strip[0].B1", 1.0) | Out-Null
+        [VmRemote]::SetParamFloat("Strip[0].Mute", 0.0) | Out-Null
+
+        # Virtual input (meeting audio) -> A1 (hear) + B1 (capture)
+        [VmRemote]::SetParamFloat("Strip[2].A1", 1.0) | Out-Null
+        [VmRemote]::SetParamFloat("Strip[2].B1", 1.0) | Out-Null
+
+        # Unmute B1 bus output
+        [VmRemote]::SetParamFloat("Bus[2].Mute", 0.0) | Out-Null
+
         Start-Sleep -Milliseconds 500
         [VmRemote]::IsParamsDirty() | Out-Null
         [VmRemote]::Logout() | Out-Null
