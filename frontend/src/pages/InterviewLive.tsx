@@ -50,6 +50,8 @@ export default function InterviewLive() {
   const [audioActive, setAudioActive] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [manualText, setManualText] = useState("");
   const [manualSpeaker, setManualSpeaker] = useState<
     "interviewer" | "candidate"
@@ -157,6 +159,24 @@ export default function InterviewLive() {
   }, [id, interview, connected, connectWs]);
 
   useEffect(() => {
+    async function loadDevices() {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter((d) => d.kind === "audioinput");
+        setAudioDevices(audioInputs);
+        const voicemeeter = audioInputs.find((d) =>
+          d.label.toLowerCase().includes("voicemeeter")
+        );
+        if (voicemeeter) setSelectedDeviceId(voicemeeter.deviceId);
+      } catch {
+        /* permission denied — devices will be empty */
+      }
+    }
+    loadDevices();
+  }, []);
+
+  useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcripts]);
 
@@ -204,7 +224,12 @@ export default function InterviewLive() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const constraints: MediaStreamConstraints = {
+        audio: selectedDeviceId
+          ? { deviceId: { exact: selectedDeviceId } }
+          : true,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       mediaStreamRef.current = stream;
 
       const audioCtx = new AudioContext();
@@ -249,7 +274,7 @@ export default function InterviewLive() {
       const msg = err instanceof Error ? err.message : String(err);
       setAudioError(`麦克风访问失败：${msg}`);
     }
-  }, []);
+  }, [selectedDeviceId]);
 
   const handleEndInterview = async () => {
     if (!id) return;
@@ -349,12 +374,27 @@ export default function InterviewLive() {
           ) : (
             <>
               {!audioActive && (
-                <button
-                  onClick={handleStartAudio}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
-                >
-                  启动音频
-                </button>
+                <>
+                  {audioDevices.length > 1 && (
+                    <select
+                      value={selectedDeviceId}
+                      onChange={(e) => setSelectedDeviceId(e.target.value)}
+                      className="text-xs border border-gray-300 rounded px-1 py-1 max-w-[180px] truncate"
+                    >
+                      {audioDevices.map((d) => (
+                        <option key={d.deviceId} value={d.deviceId}>
+                          {d.label || `麦克风 ${d.deviceId.slice(0, 8)}`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    onClick={handleStartAudio}
+                    className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
+                  >
+                    启动音频
+                  </button>
+                </>
               )}
               <button
                 onClick={handleEndInterview}
