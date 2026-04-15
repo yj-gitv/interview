@@ -15,7 +15,7 @@ from app.services.transcription import TranscriptionService, TranscriptSegment
 from app.services.audio_capture import AudioCaptureService
 from app.services.realtime_analysis import RealtimeAnalysisService
 from app.services.pii_masking import PIIMasker
-from app.services.speaker_diarization import VoiceprintDiarizer, create_diarizer
+from app.services.speaker_diarization import HybridDiarizer
 
 
 @dataclass
@@ -30,7 +30,7 @@ class InterviewSession:
     _transcription: TranscriptionService | None = None
     _analysis: RealtimeAnalysisService | None = None
     _masker: PIIMasker | None = None
-    _diarizer: VoiceprintDiarizer | None = None
+    _diarizer: HybridDiarizer | None = None
     _websockets: list[WebSocket] = field(default_factory=list)
     _audio_queue: asyncio.Queue | None = None
     _running: bool = False
@@ -97,12 +97,7 @@ async def create_session(
             compute_type="int8",
         )
 
-    if settings.diarization_enabled:
-        session._diarizer = create_diarizer(
-            method=settings.diarization_method,
-            energy_threshold=settings.diarization_energy_threshold,
-            sample_rate=settings.audio_sample_rate,
-        )
+    session._diarizer = HybridDiarizer(sample_rate=settings.audio_sample_rate)
 
     _sessions[interview_id] = session
     print(f"[interview_manager] Session created for interview {interview_id} "
@@ -160,13 +155,13 @@ async def process_audio_loop(session: InterviewSession):
         if isinstance(item, tuple):
             source_speaker, audio = item
         else:
-            source_speaker, audio = "candidate", item
+            source_speaker, audio = None, item
 
         if session._transcription is None:
             print("[audio_loop] No transcription service, skipping", flush=True)
             continue
 
-        print(f"[audio_loop] Transcribing {len(audio)} samples ({source_speaker})…", flush=True)
+        print(f"[audio_loop] Transcribing {len(audio)} samples (source={source_speaker})…", flush=True)
         try:
             segments = await loop.run_in_executor(
                 None, session._transcription.transcribe, audio
@@ -183,8 +178,21 @@ async def process_audio_loop(session: InterviewSession):
         for seg in segments:
             elapsed = time.time() - session.start_time
             sanitized = session._masker.mask(seg.text) if session._masker else seg.text
-            speaker = source_speaker
 
+            # Two-layer speaker identification:
+            # Layer 1: source_tag (interviewer/candidate/None)
+            # Layer 2: voiceprint within each side
+            source_tag = source_speaker if source_speaker in ("interviewer", "candidate") else None
+            if session._diarizer:
+                sr = settings.audio_sample_rate
+                s_idx = max(0, int(seg.start * sr))
+                e_idx = min(len(audio), int(seg.end * sr))
+                seg_audio = audio[s_idx:e_idx] if e_idx > s_idx else audio
+                speaker = session._diarizer.identify(seg_audio, source_tag=source_tag)
+            else:
+                speaker = source_speaker or "unknown"
+
+            print(f"[audio_loop] speaker={speaker} (source={source_speaker})", flush=True)
             line = f"{speaker}: {sanitized}"
             session.transcript_lines.append(line)
 

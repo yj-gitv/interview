@@ -17,8 +17,6 @@ class Settings(BaseSettings):
     audio_chunk_seconds: float = 6.0
     audio_device_name: str = "BlackHole 2ch"
     diarization_enabled: bool = True
-    diarization_method: str = "energy"  # "energy" or "pyannote"
-    diarization_energy_threshold: float = 0.02
     auto_cleanup_enabled: bool = False
     auto_cleanup_days: int = 90
     auto_cleanup_interval_hours: int = 24

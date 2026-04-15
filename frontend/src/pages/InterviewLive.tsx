@@ -56,6 +56,7 @@ export default function InterviewLive() {
   const [manualSpeaker, setManualSpeaker] = useState<
     "interviewer" | "candidate"
   >("candidate");
+  const [interviewMode, setInterviewMode] = useState<"remote" | "onsite">("remote");
   const [elapsed, setElapsed] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -232,14 +233,16 @@ export default function InterviewLive() {
       const micStream = await navigator.mediaDevices.getUserMedia(micConstraints);
 
       let systemStream: MediaStream | null = null;
-      try {
-        systemStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true,
-        } as DisplayMediaStreamOptions);
-        systemStream.getVideoTracks().forEach((t) => t.stop());
-      } catch {
-        // User declined screen share — mic-only mode is fine
+      if (interviewMode === "remote") {
+        try {
+          systemStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: true,
+          } as DisplayMediaStreamOptions);
+          systemStream.getVideoTracks().forEach((t) => t.stop());
+        } catch {
+          // User declined — remote mode falls back to mic-only with voiceprint
+        }
       }
 
       const audioCtx = new AudioContext();
@@ -250,8 +253,8 @@ export default function InterviewLive() {
       if (systemStream) allTracks.push(...systemStream.getTracks());
       mediaStreamRef.current = new MediaStream(allTracks);
 
-      // 0x01 = mic (interviewer), 0x02 = system (candidate)
-      function createTaggedSender(stream: MediaStream, tag: number) {
+      // tag: 0x01=mic(interviewer), 0x02=system(candidate), 0x00=no tag(onsite/voiceprint-only)
+      function createSender(stream: MediaStream, tag: number) {
         const src = audioCtx.createMediaStreamSource(stream);
         const proc = audioCtx.createScriptProcessor(4096, 1, 1);
         let buf: Float32Array[] = [];
@@ -271,10 +274,14 @@ export default function InterviewLive() {
             len = 0;
 
             if (ws && ws.readyState === WebSocket.OPEN) {
-              const tagged = new Uint8Array(1 + pcm.byteLength);
-              tagged[0] = tag;
-              tagged.set(new Uint8Array(pcm.buffer), 1);
-              ws.send(tagged.buffer);
+              if (tag === 0x00) {
+                ws.send(pcm.buffer);
+              } else {
+                const tagged = new Uint8Array(1 + pcm.byteLength);
+                tagged[0] = tag;
+                tagged.set(new Uint8Array(pcm.buffer), 1);
+                ws.send(tagged.buffer);
+              }
             }
           }
         };
@@ -283,11 +290,18 @@ export default function InterviewLive() {
         return proc;
       }
 
-      const micProc = createTaggedSender(micStream, 0x01);
-      processorRef.current = micProc;
+      if (interviewMode === "onsite") {
+        // In-person: single mic, no source tag, voiceprint handles separation
+        const proc = createSender(micStream, 0x00);
+        processorRef.current = proc;
+      } else {
+        // Remote: tag each stream separately
+        const micProc = createSender(micStream, 0x01);
+        processorRef.current = micProc;
 
-      if (systemStream && systemStream.getAudioTracks().length > 0) {
-        createTaggedSender(systemStream, 0x02);
+        if (systemStream && systemStream.getAudioTracks().length > 0) {
+          createSender(systemStream, 0x02);
+        }
       }
 
       ws.send(JSON.stringify({ type: "start_browser_audio" }));
@@ -296,7 +310,7 @@ export default function InterviewLive() {
       const msg = err instanceof Error ? err.message : String(err);
       setAudioError(`音频访问失败：${msg}`);
     }
-  }, [selectedDeviceId]);
+  }, [selectedDeviceId, interviewMode]);
 
   const handleEndInterview = async () => {
     if (!id) return;
@@ -397,6 +411,15 @@ export default function InterviewLive() {
             <>
               {!audioActive && (
                 <>
+                  <select
+                    value={interviewMode}
+                    onChange={(e) => setInterviewMode(e.target.value as "remote" | "onsite")}
+                    className="text-xs border border-gray-300 rounded px-1 py-1"
+                    title="面试模式"
+                  >
+                    <option value="remote">远程面试</option>
+                    <option value="onsite">现场面试</option>
+                  </select>
                   {audioDevices.length > 1 && (
                     <select
                       value={selectedDeviceId}
@@ -437,24 +460,36 @@ export default function InterviewLive() {
             实时转录
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {transcripts.map((t, i) => (
-              <div
-                key={i}
-                className={`text-sm ${
-                  t.speaker === "interviewer"
-                    ? "text-blue-700"
-                    : "text-orange-700"
-                }`}
-              >
-                <span className="text-xs text-gray-400 mr-2">
-                  {formatTime(Math.round(t.timestamp))}
-                </span>
-                <span className="font-medium">
-                  {t.speaker === "interviewer" ? "面试官" : "候选人"}:
-                </span>{" "}
-                {t.text}
-              </div>
-            ))}
+            {transcripts.map((t, i) => {
+              const isInterviewer = t.speaker.startsWith("interviewer");
+              const isCandidate = t.speaker.startsWith("candidate");
+              let displayName: string;
+              if (t.speaker === "interviewer") displayName = "面试官";
+              else if (t.speaker === "candidate") displayName = "候选人";
+              else if (isInterviewer) displayName = `面试官${t.speaker.replace("interviewer_", "")}`;
+              else if (isCandidate) displayName = `候选人${t.speaker.replace("candidate_", "")}`;
+              else displayName = t.speaker.replace("speaker_", "说话人");
+              return (
+                <div
+                  key={i}
+                  className={`text-sm ${
+                    isInterviewer
+                      ? "text-blue-700"
+                      : isCandidate
+                        ? "text-orange-700"
+                        : "text-purple-700"
+                  }`}
+                >
+                  <span className="text-xs text-gray-400 mr-2">
+                    {formatTime(Math.round(t.timestamp))}
+                  </span>
+                  <span className="font-medium">
+                    {displayName}:
+                  </span>{" "}
+                  {t.text}
+                </div>
+              );
+            })}
             <div ref={transcriptEndRef} />
           </div>
           {connected && (

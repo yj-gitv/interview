@@ -87,14 +87,16 @@ async def websocket_interview(websocket: WebSocket, interview_id: int):
 
             if "bytes" in message and message["bytes"]:
                 raw = message["bytes"]
-                speaker = "candidate"
+                # Tag byte: 0x01=mic/interviewer, 0x02=system/candidate
+                # No tag = in-person mode (voiceprint only)
+                source_tag = None
                 if len(raw) > 4 and raw[0] in (0x01, 0x02):
-                    speaker = "interviewer" if raw[0] == 0x01 else "candidate"
+                    source_tag = "interviewer" if raw[0] == 0x01 else "candidate"
                     raw = raw[1:]
                 audio_data = np.frombuffer(raw, dtype=np.float32)
                 if session._audio_queue and session._running:
-                    session._audio_queue.put_nowait((speaker, audio_data))
-                    print(f"[ws] Queued audio ({speaker}): {len(audio_data)} samples, max_amp={float(np.max(np.abs(audio_data))):.4f}", flush=True)
+                    session._audio_queue.put_nowait((source_tag, audio_data))
+                    print(f"[ws] Queued audio (source={source_tag}): {len(audio_data)} samples, max_amp={float(np.max(np.abs(audio_data))):.4f}", flush=True)
                 continue
 
             data = message.get("text", "")
