@@ -224,19 +224,41 @@ export default function InterviewLive() {
     }
 
     try {
-      const constraints: MediaStreamConstraints = {
+      const micConstraints: MediaStreamConstraints = {
         audio: selectedDeviceId
           ? { deviceId: { exact: selectedDeviceId } }
           : true,
       };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      mediaStreamRef.current = stream;
+      const micStream = await navigator.mediaDevices.getUserMedia(micConstraints);
+
+      let systemStream: MediaStream | null = null;
+      try {
+        systemStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true,
+        } as DisplayMediaStreamOptions);
+        systemStream.getVideoTracks().forEach((t) => t.stop());
+      } catch {
+        // User declined screen share — mic-only mode is fine
+      }
 
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
       const nativeSR = audioCtx.sampleRate;
 
-      const source = audioCtx.createMediaStreamSource(stream);
+      const micSource = audioCtx.createMediaStreamSource(micStream);
+      const merger = audioCtx.createChannelMerger(1);
+      micSource.connect(merger, 0, 0);
+
+      if (systemStream && systemStream.getAudioTracks().length > 0) {
+        const sysSource = audioCtx.createMediaStreamSource(systemStream);
+        sysSource.connect(merger, 0, 0);
+      }
+
+      const allTracks = [...micStream.getTracks()];
+      if (systemStream) allTracks.push(...systemStream.getTracks());
+      mediaStreamRef.current = new MediaStream(allTracks);
+
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
 
@@ -265,14 +287,14 @@ export default function InterviewLive() {
         }
       };
 
-      source.connect(processor);
+      merger.connect(processor);
       processor.connect(audioCtx.destination);
 
       ws.send(JSON.stringify({ type: "start_browser_audio" }));
       setAudioActive(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setAudioError(`麦克风访问失败：${msg}`);
+      setAudioError(`音频访问失败：${msg}`);
     }
   }, [selectedDeviceId]);
 
