@@ -10,7 +10,6 @@ echo ============================================
 echo.
 
 set "PROJECT_DIR=%~dp0"
-set "SCRIPTS_DIR=%PROJECT_DIR%scripts\"
 
 :: ========== 1. 检查 Docker ==========
 where docker >nul 2>&1
@@ -38,48 +37,7 @@ if %errorlevel% neq 0 (
     echo.
 )
 
-:: ========== 2. 检查 VoiceMeeter ==========
-echo [检查] 音频虚拟设备 VoiceMeeter...
-
-powershell -ExecutionPolicy Bypass -File "%SCRIPTS_DIR%audio-setup.ps1" -Action check >nul 2>&1
-if %errorlevel% neq 0 (
-    echo.
-    echo ============================================
-    echo   需要安装 VoiceMeeter（免费音频虚拟设备）
-    echo   用于采集腾讯会议等视频通话中双方的声音
-    echo ============================================
-    echo.
-    echo 正在下载 VoiceMeeter 安装包...
-
-    powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://download.vb-audio.com/Download_CABLE/VoicemeeterSetup_v1122.zip' -OutFile '%TEMP%\VoicemeeterSetup.zip'"
-    if %errorlevel% neq 0 (
-        echo [错误] 下载失败，请手动下载: https://voicemeeter.com
-        pause
-        exit /b 1
-    )
-
-    echo 正在解压...
-    powershell -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%TEMP%\VoicemeeterSetup.zip' -DestinationPath '%TEMP%\VoicemeeterSetup' -Force"
-
-    echo.
-    echo ================================================
-    echo   即将弹出 VoiceMeeter 安装程序
-    echo   请点击 Install，安装完成后【重启电脑】
-    echo   重启后再次双击此脚本即可
-    echo ================================================
-    echo.
-    start /wait "" "%TEMP%\VoicemeeterSetup\voicemeetersetup.exe"
-
-    echo.
-    echo 安装完成，请重启电脑后再次运行此脚本。
-    pause
-    exit /b 0
-) else (
-    echo [OK] VoiceMeeter 已安装。
-)
-echo.
-
-:: ========== 3. 配置 .env ==========
+:: ========== 2. 配置 .env ==========
 if not exist "%PROJECT_DIR%.env" (
     echo ============================================
     echo   首次运行，需要配置 API 信息
@@ -124,13 +82,8 @@ if not exist "%PROJECT_DIR%.env" (
     echo [OK] 已检测到 .env 配置文件。
 )
 
-:: ========== 4. 自动配置音频 ==========
+:: ========== 3. 构建并启动容器 ==========
 echo.
-echo [音频] 正在配置 VoiceMeeter 音频路由...
-powershell -ExecutionPolicy Bypass -File "%SCRIPTS_DIR%audio-setup.ps1" -Action setup
-echo.
-
-:: ========== 5. 构建并启动容器 ==========
 echo ============================================
 echo   正在启动面试助手...
 echo   首次启动需要 10-20 分钟，请耐心等待
@@ -144,13 +97,11 @@ if %errorlevel% neq 0 (
     echo.
     echo [错误] 启动失败，请检查上方错误信息。
     echo.
-    :: Restore audio before exit
-    powershell -ExecutionPolicy Bypass -File "%SCRIPTS_DIR%audio-setup.ps1" -Action restore
     pause
     exit /b 1
 )
 
-:: ========== 6. 等待就绪并打开浏览器 ==========
+:: ========== 4. 打开浏览器 ==========
 echo.
 timeout /t 8 /nobreak >nul
 
@@ -159,33 +110,33 @@ echo   启动成功！
 echo ============================================
 echo.
 echo   访问地址: http://localhost:3000
+echo   请使用 Chrome 浏览器打开
 echo.
 echo   使用方法:
-echo     1. 打开腾讯会议/Zoom 开始面试
-echo     2. 在面试助手中点"开始面试"
-echo     3. 在"启动音频"旁的下拉框选择
-echo        "VoiceMeeter Out B1"
-echo     4. 点击"启动音频"即可录制双方声音
+echo     1. 创建岗位和候选人，进入面试页面
+echo     2. 点击"开始面试"
+echo     3. 点击"启动音频"
+echo     4. 允许麦克风权限（录制你的声音）
+echo     5. 选择"整个屏幕"并勾选"共享系统音频"
+echo        （录制腾讯会议/Zoom 对方的声音）
+echo     6. 开始面试，实时转录会自动出现
 echo.
-echo   音频已自动配置，退出后将自动恢复。
+echo   提示：如果不需要录对方声音，第5步可以取消
 echo.
 echo ============================================
-echo   按任意键停止服务并恢复音频设置...
+echo   按任意键停止服务...
 echo ============================================
 
 start http://localhost:3000
 
 pause >nul
 
-:: ========== 7. 停止并恢复 ==========
+:: ========== 5. 停止 ==========
 echo.
 echo [停止] 正在关闭面试助手...
 cd /d "%PROJECT_DIR%"
 docker compose down
 
-echo [音频] 正在恢复原始音频设置...
-powershell -ExecutionPolicy Bypass -File "%SCRIPTS_DIR%audio-setup.ps1" -Action restore
-
 echo.
-echo [OK] 已全部关闭，音频设置已恢复。
+echo [OK] 已关闭。
 pause
