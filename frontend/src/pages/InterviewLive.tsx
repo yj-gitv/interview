@@ -246,49 +246,49 @@ export default function InterviewLive() {
       audioCtxRef.current = audioCtx;
       const nativeSR = audioCtx.sampleRate;
 
-      const micSource = audioCtx.createMediaStreamSource(micStream);
-      const merger = audioCtx.createChannelMerger(1);
-      micSource.connect(merger, 0, 0);
-
-      if (systemStream && systemStream.getAudioTracks().length > 0) {
-        const sysSource = audioCtx.createMediaStreamSource(systemStream);
-        sysSource.connect(merger, 0, 0);
-      }
-
       const allTracks = [...micStream.getTracks()];
       if (systemStream) allTracks.push(...systemStream.getTracks());
       mediaStreamRef.current = new MediaStream(allTracks);
 
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
+      // 0x01 = mic (interviewer), 0x02 = system (candidate)
+      function createTaggedSender(stream: MediaStream, tag: number) {
+        const src = audioCtx.createMediaStreamSource(stream);
+        const proc = audioCtx.createScriptProcessor(4096, 1, 1);
+        let buf: Float32Array[] = [];
+        let len = 0;
 
-      let pcmBuffer: Float32Array[] = [];
-      let pcmLength = 0;
+        proc.onaudioprocess = (e) => {
+          const raw = e.inputBuffer.getChannelData(0);
+          const resampled = downsample(raw, nativeSR, TARGET_SAMPLE_RATE);
+          buf.push(new Float32Array(resampled));
+          len += resampled.length;
 
-      processor.onaudioprocess = (e) => {
-        const raw = e.inputBuffer.getChannelData(0);
-        const resampled = downsample(raw, nativeSR, TARGET_SAMPLE_RATE);
-        pcmBuffer.push(new Float32Array(resampled));
-        pcmLength += resampled.length;
+          if (len >= CHUNK_SIZE) {
+            const pcm = new Float32Array(len);
+            let off = 0;
+            for (const b of buf) { pcm.set(b, off); off += b.length; }
+            buf = [];
+            len = 0;
 
-        if (pcmLength >= CHUNK_SIZE) {
-          const merged = new Float32Array(pcmLength);
-          let offset = 0;
-          for (const buf of pcmBuffer) {
-            merged.set(buf, offset);
-            offset += buf.length;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              const tagged = new Uint8Array(1 + pcm.byteLength);
+              tagged[0] = tag;
+              tagged.set(new Uint8Array(pcm.buffer), 1);
+              ws.send(tagged.buffer);
+            }
           }
-          pcmBuffer = [];
-          pcmLength = 0;
+        };
+        src.connect(proc);
+        proc.connect(audioCtx.destination);
+        return proc;
+      }
 
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(merged.buffer);
-          }
-        }
-      };
+      const micProc = createTaggedSender(micStream, 0x01);
+      processorRef.current = micProc;
 
-      merger.connect(processor);
-      processor.connect(audioCtx.destination);
+      if (systemStream && systemStream.getAudioTracks().length > 0) {
+        createTaggedSender(systemStream, 0x02);
+      }
 
       ws.send(JSON.stringify({ type: "start_browser_audio" }));
       setAudioActive(true);

@@ -151,17 +151,22 @@ async def process_audio_loop(session: InterviewSession):
 
     while session._running:
         try:
-            audio = await asyncio.wait_for(
+            item = await asyncio.wait_for(
                 session._audio_queue.get(), timeout=1.0
             )
         except asyncio.TimeoutError:
             continue
 
+        if isinstance(item, tuple):
+            source_speaker, audio = item
+        else:
+            source_speaker, audio = "candidate", item
+
         if session._transcription is None:
             print("[audio_loop] No transcription service, skipping", flush=True)
             continue
 
-        print(f"[audio_loop] Transcribing {len(audio)} samples…", flush=True)
+        print(f"[audio_loop] Transcribing {len(audio)} samples ({source_speaker})…", flush=True)
         try:
             segments = await loop.run_in_executor(
                 None, session._transcription.transcribe, audio
@@ -175,20 +180,10 @@ async def process_audio_loop(session: InterviewSession):
             continue
 
         print(f"[audio_loop] Got {len(segments)} segments", flush=True)
-        sample_rate = settings.audio_sample_rate
         for seg in segments:
             elapsed = time.time() - session.start_time
             sanitized = session._masker.mask(seg.text) if session._masker else seg.text
-            if session._diarizer and isinstance(session._diarizer, VoiceprintDiarizer):
-                start_idx = int(seg.start * sample_rate)
-                end_idx = int(seg.end * sample_rate)
-                audio_slice = audio[max(0, start_idx):min(len(audio), end_idx)]
-                if len(audio_slice) > 0:
-                    speaker = session._diarizer.identify_speaker(audio_slice)
-                else:
-                    speaker = "candidate"
-            else:
-                speaker = "candidate"
+            speaker = source_speaker
 
             line = f"{speaker}: {sanitized}"
             session.transcript_lines.append(line)
