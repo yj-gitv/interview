@@ -1,7 +1,17 @@
+"""Speech recognition services.
+
+- SherpaRecognizer: streaming Paraformer for real-time drafts
+- SenseVoiceRecognizer: offline SenseVoice for high-accuracy finals
+- SherpaPunctuation: CT-Transformer punctuation restoration
+"""
+
+import os
+import logging
 from dataclasses import dataclass
 
 import numpy as np
-from faster_whisper import WhisperModel
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -11,62 +21,121 @@ class TranscriptSegment:
     end: float
 
 
-class TranscriptionService:
-    def __init__(
-        self,
-        model_size: str = "base",
-        device: str = "cpu",
-        compute_type: str = "int8",
-    ):
-        self.model_size = model_size
-        self._device = device
-        self._compute_type = compute_type
-        self._model: WhisperModel | None = None
+class SherpaRecognizer:
+    """Singleton streaming recognizer for real-time drafts."""
 
-    def _ensure_model(self):
-        if self._model is None:
-            self._model = WhisperModel(
-                self.model_size,
-                device=self._device,
-                compute_type=self._compute_type,
-            )
+    _instance = None
 
-    def transcribe(
-        self,
-        audio: np.ndarray,
-        sample_rate: int = 16000,
-        language: str = "zh",
-    ) -> list[TranscriptSegment]:
-        self._ensure_model()
+    def __init__(self, model_dir: str):
+        import sherpa_onnx
 
+        self._recognizer = sherpa_onnx.OnlineRecognizer.from_paraformer(
+            encoder=os.path.join(model_dir, "encoder.int8.onnx"),
+            decoder=os.path.join(model_dir, "decoder.int8.onnx"),
+            tokens=os.path.join(model_dir, "tokens.txt"),
+            num_threads=4,
+            sample_rate=16000,
+            feature_dim=80,
+            decoding_method="greedy_search",
+            provider="cpu",
+            enable_endpoint_detection=True,
+            rule1_min_trailing_silence=1.5,
+            rule2_min_trailing_silence=1.0,
+            rule3_min_utterance_length=20,
+        )
+        print(f"[SherpaRecognizer] Streaming model loaded from {model_dir}", flush=True)
+
+    @classmethod
+    def get_instance(cls, model_dir: str):
+        if cls._instance is None:
+            cls._instance = cls(model_dir)
+        return cls._instance
+
+    def create_stream(self):
+        return self._recognizer.create_stream()
+
+    def feed_and_decode(self, stream, audio: np.ndarray, sample_rate: int = 16000):
         if audio.dtype != np.float32:
             audio = audio.astype(np.float32)
+        stream.accept_waveform(sample_rate, audio)
+        while self._recognizer.is_ready(stream):
+            self._recognizer.decode_stream(stream)
 
-        if np.max(np.abs(audio)) > 1.0:
-            audio = audio / 32768.0
+    def get_text(self, stream) -> str:
+        result = self._recognizer.get_result(stream)
+        if isinstance(result, str):
+            return result.strip()
+        return getattr(result, "text", str(result)).strip()
 
-        segments, info = self._model.transcribe(
-            audio,
-            language=language,
-            beam_size=5,
-            best_of=3,
-            temperature=0.0,
-            condition_on_previous_text=True,
-            initial_prompt="以下是一段面试对话的实时转录，使用简体中文。",
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=300,
-                speech_pad_ms=200,
-            ),
-            no_speech_threshold=0.5,
-            log_prob_threshold=-0.8,
+    def is_endpoint(self, stream) -> bool:
+        return self._recognizer.is_endpoint(stream)
+
+    def reset(self, stream):
+        self._recognizer.reset(stream)
+
+
+class SenseVoiceRecognizer:
+    """Singleton offline recognizer using SenseVoice for high-accuracy finals."""
+
+    _instance = None
+
+    def __init__(self, model_path: str, tokens_path: str):
+        import sherpa_onnx
+
+        self._recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+            model=model_path,
+            tokens=tokens_path,
+            num_threads=4,
+            provider="cpu",
+            language="zh",
+            use_itn=True,
         )
+        print(f"[SenseVoiceRecognizer] Offline model loaded from {model_path}", flush=True)
 
-        results = []
-        for seg in segments:
-            text = seg.text.strip()
-            if text and seg.no_speech_prob < 0.7:
-                results.append(TranscriptSegment(
-                    text=text, start=seg.start, end=seg.end
-                ))
-        return results
+    @classmethod
+    def get_instance(cls, model_path: str, tokens_path: str):
+        if cls._instance is None:
+            cls._instance = cls(model_path, tokens_path)
+        return cls._instance
+
+    def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
+        """Transcribe an audio segment. CPU-bound, run in executor."""
+        if audio.dtype != np.float32:
+            audio = audio.astype(np.float32)
+        stream = self._recognizer.create_stream()
+        stream.accept_waveform(sample_rate, audio)
+        self._recognizer.decode_stream(stream)
+        result = stream.result
+        if isinstance(result, str):
+            return result.strip()
+        return getattr(result, "text", str(result)).strip()
+
+
+class SherpaPunctuation:
+    """Singleton offline punctuation restorer using CT-Transformer."""
+
+    _instance = None
+
+    def __init__(self, model_path: str):
+        import sherpa_onnx
+
+        config = sherpa_onnx.OfflinePunctuationConfig(
+            model=sherpa_onnx.OfflinePunctuationModelConfig(
+                ct_transformer=model_path,
+                num_threads=2,
+                provider="cpu",
+            ),
+        )
+        self._punct = sherpa_onnx.OfflinePunctuation(config)
+        print(f"[SherpaPunctuation] Model loaded from {model_path}", flush=True)
+
+    @classmethod
+    def get_instance(cls, model_path: str):
+        if cls._instance is None:
+            cls._instance = cls(model_path)
+        return cls._instance
+
+    def add_punctuation(self, text: str) -> str:
+        if not text:
+            return text
+        return self._punct.add_punctuation(text)

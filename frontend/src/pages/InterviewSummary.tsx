@@ -77,7 +77,7 @@ export default function InterviewSummary() {
             &larr; 返回候选人
           </Link>
           <h2 className="text-xl font-bold text-gray-900 mt-2">
-            面试总结 — {interview.candidate_codename}
+            面试总结 — {interview.candidate_display_name || interview.candidate_codename}
           </h2>
           <p className="text-sm text-gray-500">
             {interview.position_title} |{" "}

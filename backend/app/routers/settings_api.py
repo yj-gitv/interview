@@ -46,7 +46,7 @@ def get_settings():
     return {
         "auto_cleanup_enabled": settings.auto_cleanup_enabled,
         "auto_cleanup_days": settings.auto_cleanup_days,
-        "whisper_model": settings.whisper_model,
+        "asr_engine": "sherpa-onnx-paraformer",
         "audio_device_name": settings.audio_device_name,
         "dingtalk_webhook_url": _mask_url(settings.dingtalk_webhook_url),
         "feishu_webhook_url": _mask_url(settings.feishu_webhook_url),

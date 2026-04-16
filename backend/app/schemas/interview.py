@@ -20,6 +20,7 @@ class InterviewResponse(BaseModel):
     duration_seconds: int
     created_at: datetime
     candidate_codename: str = ""
+    candidate_display_name: str = ""
     position_title: str = ""
     has_summary: bool = False
 

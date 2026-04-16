@@ -4,17 +4,34 @@ WORKDIR /app
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        libsndfile1 ffmpeg libportaudio2 && \
+        libsndfile1 ffmpeg libportaudio2 curl bzip2 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Download streaming Paraformer model (Chinese+English, ~226MB int8)
+RUN curl -sL --retry 5 --retry-delay 3 \
+    https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2 \
+    | tar xj
+
+# Download CT-Transformer punctuation model (Chinese+English, ~63MB int8)
+RUN curl -sL --retry 5 --retry-delay 3 \
+    https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2 \
+    | tar xj
+
+# Download SenseVoice offline model (Chinese+English, ~70MB int8) for high-accuracy finals
+RUN curl -sL --retry 5 --retry-delay 3 \
+    https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2 \
+    | tar xj
+
+# Download Silero VAD model (~2MB) for accurate speech/silence detection
+RUN curl -sL --retry 5 --retry-delay 3 -o silero_vad.onnx \
+    https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+
 COPY . .
 
 RUN mkdir -p data uploads exports
-
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')"
 
 EXPOSE 8000
 

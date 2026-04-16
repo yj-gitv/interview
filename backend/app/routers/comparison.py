@@ -8,6 +8,7 @@ from app.models.candidate import Candidate
 from app.models.resume_match import ResumeMatch
 from app.models.interview import Interview
 from app.models.summary import Summary
+from app.services.pii_masking import mask_display_name
 
 router = APIRouter(prefix="/api/comparison", tags=["comparison"])
 
@@ -40,9 +41,11 @@ def compare_candidates(position_id: int, db: Session = Depends(get_db)):
                 Summary.interview_id == interview.id
             ).first()
 
+        display_name = f"{c.codename}（{mask_display_name(c.name)}）" if c.name else c.codename
         entry = {
             "candidate_id": c.id,
             "codename": c.codename,
+            "display_name": display_name,
             "created_at": c.created_at.isoformat() if c.created_at else None,
             "match": None,
             "interview_summary": None,

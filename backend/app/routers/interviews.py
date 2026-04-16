@@ -10,6 +10,7 @@ from app.models.candidate import Candidate
 from app.models.position import Position
 from app.schemas.interview import InterviewCreate, InterviewResponse
 from app.services import interview_manager
+from app.services.pii_masking import mask_display_name
 
 router = APIRouter(prefix="/api/interviews", tags=["interviews"])
 
@@ -102,7 +103,19 @@ def get_transcripts(interview_id: int, db: Session = Depends(get_db)):
     ]
 
 
+def _candidate_display(candidate: Candidate | None) -> tuple[str, str]:
+    if not candidate:
+        return "", ""
+    codename = candidate.codename
+    if candidate.name:
+        display = f"{codename}（{mask_display_name(candidate.name)}）"
+    else:
+        display = codename
+    return codename, display
+
+
 def _to_response(interview: Interview) -> dict:
+    codename, display_name = _candidate_display(interview.candidate)
     return {
         "id": interview.id,
         "position_id": interview.position_id,
@@ -113,7 +126,8 @@ def _to_response(interview: Interview) -> dict:
         "ended_at": interview.ended_at,
         "duration_seconds": interview.duration_seconds,
         "created_at": interview.created_at,
-        "candidate_codename": interview.candidate.codename if interview.candidate else "",
+        "candidate_codename": codename,
+        "candidate_display_name": display_name,
         "position_title": interview.position.title if interview.position else "",
         "has_summary": interview.summary is not None,
     }
@@ -125,7 +139,13 @@ async def create_interview_session(interview_id: int, db: Session = Depends(get_
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
 
-    questions = json_module.loads(interview.questions_json) if interview.questions_json else []
+    questions_raw = json_module.loads(interview.questions_json) if interview.questions_json else []
+    questions = []
+    if isinstance(questions_raw, dict):
+        for section in ["opening", "experience_verification", "competency", "risk_probing", "culture_fit"]:
+            questions.extend(questions_raw.get(section, []))
+    elif isinstance(questions_raw, list):
+        questions = questions_raw
     codename = interview.candidate.codename if interview.candidate else "候选人"
 
     await interview_manager.create_session(

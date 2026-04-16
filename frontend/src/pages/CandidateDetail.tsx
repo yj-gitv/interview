@@ -85,7 +85,7 @@ export default function CandidateDetail() {
         &larr; 返回岗位
       </Link>
       <h2 className="text-xl font-bold text-gray-900 mt-2">
-        {candidate.codename}
+        {candidate.display_name || candidate.codename}
       </h2>
 
       {/* Match Scores */}

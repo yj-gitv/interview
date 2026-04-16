@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.config import settings
-from app.database import engine
+from app.database import engine, SessionLocal
 from app.models import Base
 from app.routers.candidates import router as candidates_router
 from app.routers.comparison import router as comparison_router
@@ -34,6 +34,45 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    _migrate_candidate_name_column()
+
+
+def _migrate_candidate_name_column():
+    """Add 'name' column to candidates table if missing, then backfill from resume text."""
+    from app.services.pii_masking import extract_name_from_resume
+
+    db = SessionLocal()
+    try:
+        cols = [
+            row[1] for row in db.execute(text("PRAGMA table_info(candidates)"))
+        ]
+        if "name" not in cols:
+            db.execute(text("ALTER TABLE candidates ADD COLUMN name VARCHAR(100) DEFAULT ''"))
+            db.commit()
+            logger.info("Migration: added 'name' column to candidates table")
+
+        rows = db.execute(
+            text("SELECT id, resume_raw_text, resume_file_path, name FROM candidates")
+        ).fetchall()
+        for row in rows:
+            cid, raw_text, file_path, existing_name = row
+            if existing_name:
+                continue
+            import os
+            original_filename = os.path.basename(file_path) if file_path else ""
+            name = extract_name_from_resume(raw_text or "", original_filename)
+            if name:
+                db.execute(
+                    text("UPDATE candidates SET name = :name WHERE id = :id"),
+                    {"name": name, "id": cid},
+                )
+        db.commit()
+        logger.info("Migration: backfilled candidate names")
+    except Exception:
+        logger.exception("Migration failed for candidate name column")
+        db.rollback()
+    finally:
+        db.close()
 
 
 app.include_router(positions_router)
@@ -81,22 +120,31 @@ async def websocket_interview(websocket: WebSocket, interview_id: int):
 
     interview_manager.add_websocket(session, websocket)
 
+    msg_count = 0
     try:
         while True:
             message = await websocket.receive()
+            msg_count += 1
+            if msg_count <= 3 or msg_count % 100 == 0:
+                msg_type = "bytes" if ("bytes" in message and message["bytes"]) else "text"
+                msg_len = len(message.get("bytes", b"") or b"") if msg_type == "bytes" else len(message.get("text", "") or "")
+                print(f"[ws] msg#{msg_count} type={msg_type} len={msg_len}", flush=True)
 
             if "bytes" in message and message["bytes"]:
                 raw = message["bytes"]
-                # Tag byte: 0x01=mic/interviewer, 0x02=system/candidate
-                # No tag = in-person mode (voiceprint only)
                 source_tag = None
-                if len(raw) > 4 and raw[0] in (0x01, 0x02):
+                # Tagged frame: 1 tag byte + N*4 float32 bytes → total % 4 == 1
+                if len(raw) > 4 and len(raw) % 4 == 1 and raw[0] in (0x01, 0x02):
                     source_tag = "interviewer" if raw[0] == 0x01 else "candidate"
                     raw = raw[1:]
+                if len(raw) % 4 != 0:
+                    continue
                 audio_data = np.frombuffer(raw, dtype=np.float32)
                 if session._audio_queue and session._running:
                     session._audio_queue.put_nowait((source_tag, audio_data))
-                    print(f"[ws] Queued audio (source={source_tag}): {len(audio_data)} samples, max_amp={float(np.max(np.abs(audio_data))):.4f}", flush=True)
+                    amp = float(np.max(np.abs(audio_data)))
+                    if amp > 0.001:
+                        print(f"[ws] audio src={source_tag} samples={len(audio_data)} amp={amp:.4f}", flush=True)
                 continue
 
             data = message.get("text", "")

@@ -10,11 +10,12 @@ class Settings(BaseSettings):
     openai_model_strong: str = "gpt-4o"
     upload_dir: str = "./uploads"
     cors_origins: list[str] = ["http://localhost:5173"]
-    whisper_model: str = "small"
-    whisper_device: str = "cpu"
-    whisper_compute_type: str = "int8"
+    asr_model_dir: str = "/app/sherpa-onnx-streaming-paraformer-bilingual-zh-en"
+    asr_offline_model: str = "/app/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx"
+    asr_offline_tokens: str = "/app/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt"
+    punct_model_path: str = "/app/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/model.int8.onnx"
+    vad_model_path: str = "/app/silero_vad.onnx"
     audio_sample_rate: int = 16000
-    audio_chunk_seconds: float = 6.0
     audio_device_name: str = "BlackHole 2ch"
     diarization_enabled: bool = True
     auto_cleanup_enabled: bool = False

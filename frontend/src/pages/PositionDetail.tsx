@@ -133,7 +133,7 @@ export default function PositionDetail() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-900">
-                      {c.codename}
+                      {c.display_name || c.codename}
                     </span>
                     <span className="text-sm text-gray-500">
                       {new Date(c.created_at).toLocaleDateString("zh-CN")}

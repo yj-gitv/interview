@@ -12,6 +12,7 @@ class CandidateResponse(BaseModel):
     id: int
     position_id: int
     codename: str
+    display_name: str = ""
     resume_file_path: str
     structured_info: str
     created_at: datetime

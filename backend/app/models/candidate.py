@@ -12,6 +12,7 @@ class Candidate(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     position_id: Mapped[int] = mapped_column(ForeignKey("positions.id"))
     codename: Mapped[str] = mapped_column(String(50))
+    name: Mapped[str] = mapped_column(String(100), default="")
     resume_file_path: Mapped[str] = mapped_column(String(500), default="")
     resume_raw_text: Mapped[str] = mapped_column(Text, default="")
     resume_sanitized_text: Mapped[str] = mapped_column(Text, default="")

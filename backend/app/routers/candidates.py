@@ -1,5 +1,6 @@
 import asyncio
 import dataclasses
+import hashlib
 import json
 import logging
 import os
@@ -14,7 +15,7 @@ from app.models.candidate import Candidate
 from app.models.position import Position
 from app.models.resume_match import ResumeMatch
 from app.services.matching import MatchingService
-from app.services.pii_masking import PIIMasker
+from app.services.pii_masking import PIIMasker, extract_name_from_resume, mask_display_name
 from app.services.question_gen import QuestionGenService
 from app.services.resume_parser import ResumeParser
 
@@ -22,13 +23,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/candidates", tags=["candidates"])
 
-_codename_counter = 0
 
+def _candidate_display_name(c: Candidate) -> str:
+    if c.name:
+        return f"{c.codename}（{mask_display_name(c.name)}）"
+    return c.codename
 
-def _next_codename() -> str:
-    global _codename_counter
-    _codename_counter += 1
-    return f"候选人{chr(64 + _codename_counter)}"
+def _next_codename(db: Session) -> str:
+    """Generate next codename based on existing candidates in DB."""
+    from sqlalchemy import func as sa_func
+    count = db.query(sa_func.count(Candidate.id)).scalar() or 0
+    idx = count + 1
+    if idx <= 26:
+        label = chr(64 + idx)
+    else:
+        label = str(idx)
+    return f"候选人{label}"
 
 
 async def _auto_score_and_generate(candidate_id: int, position_id: int) -> None:
@@ -115,13 +125,39 @@ async def upload_resume(
         os.remove(save_path)
         raise HTTPException(status_code=400, detail=str(e))
 
-    codename = _next_codename()
+    # Dedup: check if same resume already exists for this position
+    text_hash = hashlib.sha256(result.raw_text.encode()).hexdigest()
+    existing = (
+        db.query(Candidate)
+        .filter(Candidate.position_id == position_id)
+        .all()
+    )
+    for c in existing:
+        existing_hash = hashlib.sha256(c.resume_raw_text.encode()).hexdigest()
+        if existing_hash == text_hash:
+            os.remove(save_path)
+            return {
+                "id": c.id,
+                "position_id": c.position_id,
+                "codename": c.codename,
+                "display_name": _candidate_display_name(c),
+                "resume_file_path": c.resume_file_path,
+                "structured_info": c.structured_info,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "has_match": c.match is not None,
+                "duplicate": True,
+            }
+
+    codename = _next_codename(db)
+    real_name = extract_name_from_resume(result.raw_text, file.filename or "")
     masker = PIIMasker(codename=codename)
-    sanitized = masker.mask(result.raw_text)
+    known = [real_name] if real_name else None
+    sanitized = masker.mask(result.raw_text, known_names=known)
 
     candidate = Candidate(
         position_id=position_id,
         codename=codename,
+        name=real_name,
         resume_file_path=save_path,
         resume_raw_text=result.raw_text,
         resume_sanitized_text=sanitized,
@@ -137,6 +173,7 @@ async def upload_resume(
         "id": candidate.id,
         "position_id": candidate.position_id,
         "codename": candidate.codename,
+        "display_name": _candidate_display_name(candidate),
         "resume_file_path": candidate.resume_file_path,
         "structured_info": candidate.structured_info,
         "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
@@ -160,6 +197,7 @@ def list_candidates(
             "id": c.id,
             "position_id": c.position_id,
             "codename": c.codename,
+            "display_name": _candidate_display_name(c),
             "resume_file_path": c.resume_file_path,
             "structured_info": c.structured_info,
             "created_at": c.created_at.isoformat() if c.created_at else None,
@@ -178,6 +216,7 @@ def get_candidate(candidate_id: int, db: Session = Depends(get_db)):
         "id": candidate.id,
         "position_id": candidate.position_id,
         "codename": candidate.codename,
+        "display_name": _candidate_display_name(candidate),
         "resume_file_path": candidate.resume_file_path,
         "resume_sanitized_text": candidate.resume_sanitized_text,
         "structured_info": candidate.structured_info,

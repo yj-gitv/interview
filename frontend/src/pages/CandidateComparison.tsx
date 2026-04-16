@@ -97,7 +97,7 @@ export default function CandidateComparison() {
                 <tr key={e.candidate_id} className={`border-b border-gray-100 ${i === 0 ? "bg-blue-50/30" : "hover:bg-gray-50"}`}>
                   <td className="px-3 py-2">
                     <Link to={`/candidates/${e.candidate_id}`} className="font-medium text-blue-600 hover:text-blue-800">
-                      {e.codename}
+                      {e.display_name || e.codename}
                     </Link>
                   </td>
                   <ScoreCell score={e.match?.experience_score} />
@@ -125,7 +125,7 @@ export default function CandidateComparison() {
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sorted.map((e) => (
               <div key={e.candidate_id} className="bg-white rounded-xl border border-gray-200 p-4">
-                <h4 className="font-semibold text-gray-900 mb-3">{e.codename}</h4>
+                <h4 className="font-semibold text-gray-900 mb-3">{e.display_name || e.codename}</h4>
                 {e.match && (
                   <>
                     {e.match.highlights.length > 0 && (

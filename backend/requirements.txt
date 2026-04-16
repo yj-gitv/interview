@@ -13,5 +13,5 @@ pytest==8.3.5
 pytest-asyncio==0.26.0
 sounddevice==0.5.1
 numpy==2.2.4
-faster-whisper==1.1.1
+sherpa-onnx>=1.10
 fpdf2==2.8.3

@@ -22,6 +22,8 @@ class MatchResult:
 
 MATCH_SYSTEM_PROMPT = """你是一位资深HR，擅长分析简历与岗位匹配度。请根据提供的JD和简历进行多维度评估。
 
+重要：无论简历使用何种语言，所有分析说明、亮点、风险和推荐评语都必须使用中文输出。
+
 评分标准（每项0-100分）：
 - experience_score: 岗位经验匹配度
 - industry_score: 行业背景相关性

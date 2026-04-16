@@ -30,6 +30,7 @@ export interface Candidate {
   id: number;
   position_id: number;
   codename: string;
+  display_name: string;
   resume_file_path: string;
   structured_info: string;
   created_at: string;
@@ -82,6 +83,7 @@ export interface Interview {
   duration_seconds: number;
   created_at: string;
   candidate_codename: string;
+  candidate_display_name: string;
   position_title: string;
   has_summary: boolean;
 }
@@ -119,6 +121,7 @@ export interface WsTranscript {
   speaker: string;
   text: string;
   timestamp: number;
+  is_final?: boolean;
 }
 
 export interface WsAnalysis {
@@ -139,6 +142,7 @@ export type WsMessage =
 export interface ComparisonEntry {
   candidate_id: number;
   codename: string;
+  display_name: string;
   created_at: string;
   match: {
     experience_score: number;

@@ -13,6 +13,7 @@ from app.models.summary import Summary
 from app.services.summary_gen import SummaryGenService
 from app.services.pdf_export import PDFExportService
 from app.services.webhook_push import push_interview_result
+from app.services.pii_masking import mask_display_name
 
 router = APIRouter(prefix="/api/summaries", tags=["summaries"])
 
@@ -105,7 +106,9 @@ def export_pdf(interview_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Summary not found")
 
     interview = db.get(Interview, interview_id)
-    codename = interview.candidate.codename if interview and interview.candidate else "Unknown"
+    candidate = interview.candidate if interview else None
+    codename = candidate.codename if candidate else "Unknown"
+    display = f"{codename}（{mask_display_name(candidate.name)}）" if candidate and candidate.name else codename
     position_title = interview.position.title if interview and interview.position else "Unknown"
     interview_date = (
         interview.started_at.strftime("%Y-%m-%d") if interview and interview.started_at
@@ -120,7 +123,7 @@ def export_pdf(interview_id: int, db: Session = Depends(get_db)):
     service = PDFExportService()
     service.export(
         output_path=pdf_path,
-        candidate_codename=codename,
+        candidate_codename=display,
         position_title=position_title,
         interview_date=interview_date,
         duration_minutes=duration_min,
@@ -147,7 +150,7 @@ def export_pdf(interview_id: int, db: Session = Depends(get_db)):
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",
-        filename=f"{codename}_{position_title}_面试总结.pdf",
+        filename=f"{display}_{position_title}_面试总结.pdf",
     )
 
 
@@ -160,7 +163,9 @@ async def push_summary(interview_id: int, base_url: str = "", db: Session = Depe
         raise HTTPException(status_code=404, detail="Summary not found")
 
     interview = db.get(Interview, interview_id)
-    codename = interview.candidate.codename if interview and interview.candidate else "Unknown"
+    candidate = interview.candidate if interview else None
+    codename = candidate.codename if candidate else "Unknown"
+    push_name = f"{codename}（{mask_display_name(candidate.name)}）" if candidate and candidate.name else codename
     position_title = interview.position.title if interview and interview.position else "Unknown"
 
     summary_url = ""
@@ -168,7 +173,7 @@ async def push_summary(interview_id: int, base_url: str = "", db: Session = Depe
         summary_url = f"{base_url.rstrip('/')}/interviews/{interview_id}/summary"
 
     result = await push_interview_result(
-        candidate_codename=codename,
+        candidate_codename=push_name,
         position_title=position_title,
         recommendation=summary.recommendation,
         summary_text=summary.candidate_overview,

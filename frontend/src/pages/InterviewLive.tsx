@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { api, Interview, WsMessage, QuestionItem } from "../api/client";
+import { api, Interview, WsMessage, WsTranscript, QuestionItem } from "../api/client";
 
 interface TranscriptLine {
   speaker: string;
@@ -15,7 +15,7 @@ interface Suggestion {
 }
 
 const TARGET_SAMPLE_RATE = 16000;
-const CHUNK_SECONDS = 6;
+const CHUNK_SECONDS = 0.8;
 const CHUNK_SIZE = TARGET_SAMPLE_RATE * CHUNK_SECONDS;
 
 function downsample(buffer: Float32Array, fromRate: number, toRate: number): Float32Array {
@@ -24,10 +24,10 @@ function downsample(buffer: Float32Array, fromRate: number, toRate: number): Flo
   const newLength = Math.round(buffer.length / ratio);
   const result = new Float32Array(newLength);
   for (let i = 0; i < newLength; i++) {
-    const srcIndex = i * ratio;
-    const lo = Math.floor(srcIndex);
+    const srcCenter = i * ratio;
+    const lo = Math.floor(srcCenter);
     const hi = Math.min(lo + 1, buffer.length - 1);
-    const frac = srcIndex - lo;
+    const frac = srcCenter - lo;
     result[i] = buffer[lo] * (1 - frac) + buffer[hi] * frac;
   }
   return result;
@@ -42,6 +42,7 @@ export default function InterviewLive() {
   >([]);
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [transcripts, setTranscripts] = useState<TranscriptLine[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, TranscriptLine>>({});
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [elementsChecked, setElementsChecked] = useState<string[]>([]);
   const [instantRating, setInstantRating] = useState("");
@@ -115,14 +116,23 @@ export default function InterviewLive() {
         return;
       }
       if (msg.type === "transcript") {
-        setTranscripts((prev) => [
-          ...prev,
-          {
-            speaker: msg.speaker,
-            text: msg.text,
-            timestamp: msg.timestamp,
-          },
-        ]);
+        const isFinal = (msg as WsTranscript).is_final !== false;
+        if (isFinal) {
+          setTranscripts((prev) => [
+            ...prev,
+            { speaker: msg.speaker, text: msg.text, timestamp: msg.timestamp },
+          ]);
+          setDrafts((prev) => {
+            const next = { ...prev };
+            delete next[msg.speaker];
+            return next;
+          });
+        } else {
+          setDrafts((prev) => ({
+            ...prev,
+            [msg.speaker]: { speaker: msg.speaker, text: msg.text, timestamp: msg.timestamp },
+          }));
+        }
       } else if (msg.type === "analysis") {
         setCurrentQIndex(msg.current_question_index);
         setElementsChecked(msg.elements_checked);
@@ -166,10 +176,9 @@ export default function InterviewLive() {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const audioInputs = devices.filter((d) => d.kind === "audioinput");
         setAudioDevices(audioInputs);
-        const voicemeeter = audioInputs.find((d) =>
-          d.label.toLowerCase().includes("voicemeeter")
-        );
-        if (voicemeeter) setSelectedDeviceId(voicemeeter.deviceId);
+        if (audioInputs.length > 0 && !selectedDeviceId) {
+          setSelectedDeviceId(audioInputs[0].deviceId);
+        }
       } catch {
         /* permission denied — devices will be empty */
       }
@@ -179,7 +188,7 @@ export default function InterviewLive() {
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcripts]);
+  }, [transcripts, drafts]);
 
   const handleStartInterview = async () => {
     if (!id) return;
@@ -249,11 +258,14 @@ export default function InterviewLive() {
       audioCtxRef.current = audioCtx;
       const nativeSR = audioCtx.sampleRate;
 
+      const silentGain = audioCtx.createGain();
+      silentGain.gain.value = 0;
+      silentGain.connect(audioCtx.destination);
+
       const allTracks = [...micStream.getTracks()];
       if (systemStream) allTracks.push(...systemStream.getTracks());
       mediaStreamRef.current = new MediaStream(allTracks);
 
-      // tag: 0x01=mic(interviewer), 0x02=system(candidate), 0x00=no tag(onsite/voiceprint-only)
       function createSender(stream: MediaStream, tag: number) {
         const src = audioCtx.createMediaStreamSource(stream);
         const proc = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -286,7 +298,7 @@ export default function InterviewLive() {
           }
         };
         src.connect(proc);
-        proc.connect(audioCtx.destination);
+        proc.connect(silentGain);
         return proc;
       }
 
@@ -370,7 +382,7 @@ export default function InterviewLive() {
             </svg>
           </Link>
           <span className="font-semibold text-gray-900">
-            {interview.candidate_codename}
+            {interview.candidate_display_name || interview.candidate_codename}
           </span>
           <span className="text-sm text-gray-500">
             {interview.position_title}
@@ -460,36 +472,45 @@ export default function InterviewLive() {
             实时转录
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {transcripts.map((t, i) => {
-              const isInterviewer = t.speaker.startsWith("interviewer");
-              const isCandidate = t.speaker.startsWith("candidate");
-              let displayName: string;
-              if (t.speaker === "interviewer") displayName = "面试官";
-              else if (t.speaker === "candidate") displayName = "候选人";
-              else if (isInterviewer) displayName = `面试官${t.speaker.replace("interviewer_", "")}`;
-              else if (isCandidate) displayName = `候选人${t.speaker.replace("candidate_", "")}`;
-              else displayName = t.speaker.replace("speaker_", "说话人");
-              return (
-                <div
-                  key={i}
-                  className={`text-sm ${
-                    isInterviewer
-                      ? "text-blue-700"
-                      : isCandidate
-                        ? "text-orange-700"
-                        : "text-purple-700"
-                  }`}
-                >
-                  <span className="text-xs text-gray-400 mr-2">
-                    {formatTime(Math.round(t.timestamp))}
-                  </span>
-                  <span className="font-medium">
-                    {displayName}:
-                  </span>{" "}
-                  {t.text}
-                </div>
-              );
-            })}
+            {(() => {
+              const allLines = [
+                ...transcripts.map((t, i) => ({ ...t, isFinal: true, key: `f-${i}` })),
+                ...Object.values(drafts).map((d) => ({ ...d, isFinal: false, key: `d-${d.speaker}` })),
+              ].sort((a, b) => a.timestamp - b.timestamp);
+
+              return allLines.map((t) => {
+                const isInterviewer = t.speaker.startsWith("interviewer");
+                const isCandidate = t.speaker.startsWith("candidate");
+                let displayName: string;
+                if (t.speaker === "interviewer") displayName = "面试官";
+                else if (t.speaker === "candidate") displayName = "候选人";
+                else if (isInterviewer) displayName = `面试官${t.speaker.replace("interviewer_", "")}`;
+                else if (isCandidate) displayName = `候选人${t.speaker.replace("candidate_", "")}`;
+                else displayName = t.speaker.replace("speaker_", "说话人");
+
+                const color = isInterviewer
+                  ? "text-blue-700"
+                  : isCandidate
+                    ? "text-orange-700"
+                    : "text-purple-700";
+
+                return (
+                  <div
+                    key={t.key}
+                    className={`text-sm ${color} ${!t.isFinal ? "italic opacity-50" : ""}`}
+                  >
+                    <span className="text-xs text-gray-400 mr-2">
+                      {formatTime(Math.round(t.timestamp))}
+                    </span>
+                    <span className="font-medium">
+                      {displayName}:
+                    </span>{" "}
+                    {t.text}
+                    {!t.isFinal && <span className="ml-1 animate-pulse">▍</span>}
+                  </div>
+                );
+              });
+            })()}
             <div ref={transcriptEndRef} />
           </div>
           {connected && (
