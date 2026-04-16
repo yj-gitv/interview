@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     asr_offline_tokens: str = "/app/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt"
     punct_model_path: str = "/app/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/model.int8.onnx"
     vad_model_path: str = "/app/silero_vad.onnx"
+    speaker_model_path: str = "/app/3dspeaker.onnx"
     audio_sample_rate: int = 16000
     audio_device_name: str = "BlackHole 2ch"
     diarization_enabled: bool = True

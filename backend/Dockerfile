@@ -29,6 +29,10 @@ RUN curl -sL --retry 5 --retry-delay 3 \
 RUN curl -sL --retry 5 --retry-delay 3 -o silero_vad.onnx \
     https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
 
+# Download 3D-Speaker embedding model (~26MB) for speaker identification
+RUN curl -sL --retry 5 --retry-delay 3 -o 3dspeaker.onnx \
+    https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
+
 COPY . .
 
 RUN mkdir -p data uploads exports

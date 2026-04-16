@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 from app.database import SessionLocal
 from app.models.transcript import Transcript
 from app.services.transcription import SherpaRecognizer, SenseVoiceRecognizer, SherpaPunctuation
-from app.services.audio_processing import SileroVAD, AudioPreprocessor
+from app.services.audio_processing import SileroVAD, SpeakerIdentifier, AudioPreprocessor
 from app.services.audio_capture import AudioCaptureService
 from app.services.realtime_analysis import RealtimeAnalysisService
 from app.services.pii_masking import PIIMasker
@@ -146,9 +146,10 @@ async def process_audio_loop(session: InterviewSession):
     # Per-source VAD instance + streaming ASR stream + last draft text
     vad_instances: dict[str, SileroVAD] = {}
     stream_states: dict[str, list] = {}  # [asr_stream, last_draft_text]
-    onsite_speaker_toggle = False
     preprocessor = AudioPreprocessor()
     chunk_counts: dict[str, int] = {}
+    # Speaker identifier for onsite single-mic mode
+    speaker_id: SpeakerIdentifier | None = None
 
     while session._running:
         try:
@@ -188,19 +189,19 @@ async def process_audio_loop(session: InterviewSession):
             current_text = recognizer.get_text(asr_stream)
             elapsed = time.time() - session.start_time
 
+            # For remote mode, speaker is known from source tag
+            # For onsite mode (single mic), draft speaker is tentative
             if source_speaker in ("interviewer", "candidate"):
-                speaker = source_speaker
-            elif tag == "single":
-                speaker = "candidate" if onsite_speaker_toggle else "interviewer"
+                draft_speaker = source_speaker
             else:
-                speaker = "interviewer"
+                draft_speaker = "interviewer"
 
             # Broadcast real-time draft
             if current_text and current_text != last_text:
                 sanitized = session._masker.mask(current_text) if session._masker else current_text
                 await broadcast(session, {
                     "type": "transcript",
-                    "speaker": speaker,
+                    "speaker": draft_speaker,
                     "text": sanitized,
                     "timestamp": round(elapsed, 1),
                     "is_final": False,
@@ -220,12 +221,25 @@ async def process_audio_loop(session: InterviewSession):
 
                 print(f"[audio_loop] VAD segment [{tag}]: {seg_dur:.1f}s, amp={float(np.max(np.abs(seg_audio))):.3f}", flush=True)
 
+                # Determine speaker: source tag for remote, voice embedding for onsite
+                if source_speaker in ("interviewer", "candidate"):
+                    speaker = source_speaker
+                elif tag == "single":
+                    if speaker_id is None:
+                        speaker_id = SpeakerIdentifier(settings.speaker_model_path)
+                        print("[audio_loop] SpeakerIdentifier initialized for onsite mode", flush=True)
+                    speaker = await loop.run_in_executor(
+                        None, speaker_id.identify, seg_audio
+                    )
+                else:
+                    speaker = "interviewer"
+
                 # Normalize AFTER VAD has cut the segment
-                seg_audio = preprocessor.process(seg_audio)
+                seg_normalized = preprocessor.process(seg_audio)
 
                 try:
                     final_text = await loop.run_in_executor(
-                        None, offline.transcribe, seg_audio
+                        None, offline.transcribe, seg_normalized
                     )
                 except Exception as e:
                     print(f"[audio_loop] SenseVoice failed: {e}", flush=True)
@@ -241,9 +255,6 @@ async def process_audio_loop(session: InterviewSession):
                         )
                     except Exception:
                         pass
-
-                if tag == "single":
-                    onsite_speaker_toggle = not onsite_speaker_toggle
 
                 sanitized = session._masker.mask(final_text) if session._masker else final_text
                 line = f"{speaker}: {sanitized}"
