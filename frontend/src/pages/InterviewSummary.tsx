@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, Interview, InterviewSummary as SummaryType } from "../api/client";
+import { api, Interview, InterviewSummary as SummaryType, TranscriptEntry } from "../api/client";
 import ScoreBadge from "../components/ScoreBadge";
 
-type Tab = "performance" | "jd";
+type Tab = "performance" | "jd" | "transcript";
 
 export default function InterviewSummary() {
   const { id } = useParams<{ id: string }>();
@@ -12,12 +12,21 @@ export default function InterviewSummary() {
   const [generating, setGenerating] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [tab, setTab] = useState<Tab>("performance");
+  const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
+  const [transcriptsLoaded, setTranscriptsLoaded] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     const iid = Number(id);
     api.interviews.get(iid).then(setInterview);
-    api.summaries.get(iid).then(setSummary).catch(() => setSummary(null));
+    api.summaries.get(iid).then(setSummary).catch(() => {
+      setSummary(null);
+      setTab("transcript");
+    });
+    api.interviews.getTranscripts(iid).then((ts) => {
+      setTranscripts(ts);
+      setTranscriptsLoaded(true);
+    }).catch(() => setTranscriptsLoaded(true));
   }, [id]);
 
   const handleGenerate = async () => {
@@ -34,6 +43,11 @@ export default function InterviewSummary() {
   const handleExportPdf = () => {
     if (!id) return;
     window.open(api.summaries.exportPdf(Number(id)), "_blank");
+  };
+
+  const handleExportTranscript = () => {
+    if (!id) return;
+    window.open(api.interviews.exportTranscripts(Number(id)), "_blank");
   };
 
   if (!interview) return <div className="text-gray-500">Loading...</div>;
@@ -94,6 +108,14 @@ export default function InterviewSummary() {
           >
             {generating ? "生成中..." : summary ? "重新生成" : "生成总结"}
           </button>
+          {transcripts.length > 0 && (
+            <button
+              onClick={handleExportTranscript}
+              className="px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700"
+            >
+              导出转录
+            </button>
+          )}
           {summary && (
             <>
               <button
@@ -133,7 +155,36 @@ export default function InterviewSummary() {
         </div>
       </div>
 
-      {summary ? (
+      {/* Tab bar — always visible */}
+      <div className="border-b border-gray-200">
+        <nav className="flex gap-0 -mb-px">
+          {summary && (
+            <>
+              <button className={tabCls("performance")} onClick={() => setTab("performance")}>
+                面试表现
+              </button>
+              <button className={tabCls("jd")} onClick={() => setTab("jd")}>
+                JD 匹配分析
+                {alignment.length > 0 && (
+                  <span className="ml-1.5 text-xs text-gray-400">
+                    ({alignment.length})
+                  </span>
+                )}
+              </button>
+            </>
+          )}
+          <button className={tabCls("transcript")} onClick={() => setTab("transcript")}>
+            转录记录
+            {transcripts.length > 0 && (
+              <span className="ml-1.5 text-xs text-gray-400">
+                ({transcripts.length})
+              </span>
+            )}
+          </button>
+        </nav>
+      </div>
+
+      {summary && (tab === "performance" || tab === "jd") ? (
         <div className="space-y-6">
           {/* Recommendation + Overview */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -152,23 +203,6 @@ export default function InterviewSummary() {
                 {summary.recommendation_reason}
               </p>
             )}
-          </div>
-
-          {/* Tab bar */}
-          <div className="border-b border-gray-200">
-            <nav className="flex gap-0 -mb-px">
-              <button className={tabCls("performance")} onClick={() => setTab("performance")}>
-                面试表现
-              </button>
-              <button className={tabCls("jd")} onClick={() => setTab("jd")}>
-                JD 匹配分析
-                {alignment.length > 0 && (
-                  <span className="ml-1.5 text-xs text-gray-400">
-                    ({alignment.length})
-                  </span>
-                )}
-              </button>
-            </nav>
           </div>
 
           {/* Tab: Performance */}
@@ -270,13 +304,63 @@ export default function InterviewSummary() {
               )}
             </div>
           )}
+
         </div>
-      ) : (
+      ) : tab !== "transcript" ? (
         <div className="bg-white border border-gray-200 rounded-xl p-12 text-center text-gray-500">
           <p className="text-lg mb-2">暂无面试总结</p>
           <p className="text-sm">
             点击「生成总结」基于面试转录自动生成结构化报告
           </p>
+        </div>
+      ) : null}
+
+      {/* Tab: Transcript — always available regardless of summary */}
+      {tab === "transcript" && (
+        <div className="space-y-3">
+          {!transcriptsLoaded ? (
+            <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-400">
+              加载中...
+            </div>
+          ) : transcripts.length > 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+              {transcripts.map((t) => {
+                const minutes = Math.floor(t.timestamp / 60);
+                const seconds = Math.floor(t.timestamp % 60);
+                const timeStr = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+                const isInterviewer = t.speaker.startsWith("interviewer");
+                const isCandidate = t.speaker.startsWith("candidate");
+                const displayName = t.speaker === "interviewer"
+                  ? "面试官"
+                  : t.speaker === "candidate"
+                    ? "候选人"
+                    : t.speaker;
+                const color = isInterviewer
+                  ? "text-blue-700"
+                  : isCandidate
+                    ? "text-orange-700"
+                    : "text-purple-700";
+
+                return (
+                  <div key={t.id} className="flex gap-3 text-sm">
+                    <span className="text-xs text-gray-400 font-mono shrink-0 pt-0.5 w-12 text-right">
+                      {timeStr}
+                    </span>
+                    <div className="min-w-0">
+                      <span className={`font-medium ${color}`}>
+                        {displayName}:
+                      </span>{" "}
+                      <span className="text-gray-700">{t.sanitized_text}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-400">
+              暂无转录记录
+            </div>
+          )}
         </div>
       )}
     </div>

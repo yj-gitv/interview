@@ -1,6 +1,15 @@
-import { useEffect, useState, useCallback, type ChangeEvent } from "react";
+import { useEffect, useState, useCallback, useRef, type ChangeEvent } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, Position, Candidate, Interview } from "../api/client";
+import {
+  api,
+  Position,
+  Candidate,
+  Interview,
+  parseCriteria,
+  serializeCriteria,
+  type EvaluationCriterion,
+} from "../api/client";
+import CriteriaEditor from "../components/CriteriaEditor";
 
 export default function PositionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -8,6 +17,11 @@ export default function PositionDetail() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [criteria, setCriteria] = useState<EvaluationCriterion[]>([]);
+  const [criteriaSaving, setCriteriaSaving] = useState(false);
+  const [criteriaDirty, setCriteriaDirty] = useState(false);
+  const [criteriaError, setCriteriaError] = useState<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -17,6 +31,8 @@ export default function PositionDetail() {
       api.candidates.list(pid),
     ]);
     setPosition(pos);
+    setCriteria(parseCriteria(pos.preferences));
+    setCriteriaDirty(false);
     setCandidates(cands);
     api.interviews.list(undefined, pid).then(setInterviews).catch(() => setInterviews([]));
   }, [id]);
@@ -24,6 +40,31 @@ export default function PositionDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleCriteriaChange = (next: EvaluationCriterion[]) => {
+    setCriteria(next);
+    setCriteriaDirty(true);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => saveCriteria(next), 1500);
+  };
+
+  const saveCriteria = async (toSave: EvaluationCriterion[]) => {
+    if (!id) return;
+    setCriteriaSaving(true);
+    setCriteriaError(null);
+    try {
+      const updated = await api.positions.update(Number(id), {
+        preferences: serializeCriteria(toSave),
+      });
+      setPosition(updated);
+      setCriteriaDirty(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setCriteriaError(`\u4fdd\u5b58\u5931\u8d25\uff1a${msg}`);
+    } finally {
+      setCriteriaSaving(false);
+    }
+  };
 
   // 有未评分候选人时自动轮询刷新（等待后台自动评分完成）
   useEffect(() => {
@@ -74,6 +115,38 @@ export default function PositionDetail() {
         <p className="text-sm text-gray-700 whitespace-pre-wrap">
           {position.jd_text}
         </p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="font-semibold text-gray-900">考察维度</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              自定义考察重点，将影响简历评分、面试问题、追问建议和面试总结
+            </p>
+          </div>
+          {criteriaSaving && (
+            <span className="text-xs text-blue-500 animate-pulse">保存中...</span>
+          )}
+          {!criteriaSaving && criteriaDirty && (
+            <button
+              type="button"
+              onClick={() => saveCriteria(criteria)}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              立即保存
+            </button>
+          )}
+          {!criteriaSaving && !criteriaDirty && criteria.length > 0 && (
+            <span className="text-xs text-green-600">已保存</span>
+          )}
+        </div>
+        {criteriaError && (
+          <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-3">
+            {criteriaError}
+          </div>
+        )}
+        <CriteriaEditor criteria={criteria} onChange={handleCriteriaChange} />
       </div>
 
       <div className="flex items-center justify-between mb-4">

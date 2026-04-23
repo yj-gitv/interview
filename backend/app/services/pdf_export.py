@@ -34,6 +34,7 @@ class PDFExportService:
         recommendation: str,
         recommendation_reason: str,
         next_steps: str,
+        transcript_lines: list[dict] | None = None,
     ):
         pdf = FPDF()
         pdf.add_page()
@@ -96,6 +97,22 @@ class PDFExportService:
             self._section_header(pdf, "Next Steps")
             self._set_body_font(pdf, 10)
             pdf.multi_cell(0, 6, text=next_steps)
+
+        if transcript_lines:
+            pdf.add_page()
+            self._section_header(pdf, "Full Interview Transcript")
+            pdf.ln(3)
+            speaker_labels = {"interviewer": "面试官", "candidate": "候选人"}
+            self._set_body_font(pdf, 9)
+            for entry in transcript_lines:
+                ts = entry.get("timestamp", 0)
+                minutes = int(ts) // 60
+                seconds = int(ts) % 60
+                speaker = speaker_labels.get(entry.get("speaker", ""), entry.get("speaker", ""))
+                text = entry.get("sanitized_text", "")
+                line = f"[{minutes:02d}:{seconds:02d}] {speaker}: {text}"
+                pdf.multi_cell(0, 5, text=line)
+                pdf.ln(1)
 
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         pdf.output(output_path)

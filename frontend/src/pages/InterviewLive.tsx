@@ -152,6 +152,19 @@ export default function InterviewLive() {
         if (msg.instant_comment) setInstantComment(msg.instant_comment);
       } else if (msg.type === "question_switched") {
         setCurrentQIndex(msg.current_question_index);
+      } else if (msg.type === "speaker_relabel") {
+        const m = msg.mapping;
+        setTranscripts((prev) =>
+          prev.map((t) => ({ ...t, speaker: m[t.speaker] ?? t.speaker }))
+        );
+        setDrafts((prev) => {
+          const next: typeof prev = {};
+          for (const [k, v] of Object.entries(prev)) {
+            const nk = m[k] ?? k;
+            next[nk] = { ...v, speaker: nk };
+          }
+          return next;
+        });
       }
     };
     wsRef.current = ws;
@@ -171,6 +184,13 @@ export default function InterviewLive() {
 
   useEffect(() => {
     async function loadDevices() {
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        setAudioError(
+          `当前页面不在安全上下文中（${window.location.protocol}//${window.location.host}），` +
+          "浏览器禁止访问麦克风。请通过 HTTPS 或 localhost 访问本页面。"
+        );
+        return;
+      }
       try {
         await navigator.mediaDevices.getUserMedia({ audio: true });
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -234,6 +254,12 @@ export default function InterviewLive() {
     }
 
     try {
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        setAudioError(
+          "当前页面不在安全上下文中，浏览器禁止访问麦克风。请通过 HTTPS 或 localhost 访问本页面。"
+        );
+        return;
+      }
       const micConstraints: MediaStreamConstraints = {
         audio: selectedDeviceId
           ? { deviceId: { exact: selectedDeviceId } }

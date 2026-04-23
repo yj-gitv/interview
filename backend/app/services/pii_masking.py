@@ -65,21 +65,23 @@ class PIIMasker:
         return result
 
 
-_NAME_LABEL_PATTERN = re.compile(
-    r"(?:姓\s*名|Name)\s*[：:]\s*([^\s,，\n]{2,4})"
+_CJK = (
+    r"[\u4e00-\u9fff"       # CJK Unified Ideographs
+    r"\u3400-\u4dbf"         # CJK Extension A
+    r"\u2e80-\u2eff"         # CJK Radicals Supplement
+    r"\u2f00-\u2fdf"         # Kangxi Radicals
+    r"\uf900-\ufaff"         # CJK Compatibility Ideographs
+    r"]"
 )
 
-_CHINESE_NAME_RE = re.compile(r"^[\u4e00-\u9fff]{2,4}$")
+_NAME_LABEL_PATTERN = re.compile(
+    rf"(?:姓\s*名|Name)\s*[：:]\s*({_CJK}{{2,4}})"
+)
+
+_CHINESE_NAME_RE = re.compile(rf"^{_CJK}{{2,4}}$")
 
 _FILENAME_STRIP_RE = re.compile(
     r"[-_\s]*(简历|resume|cv|个人|应聘|求职).*", re.IGNORECASE
-)
-
-_NAME_NEAR_CONTACT_RE = re.compile(
-    r"([\u4e00-\u9fff]{2,4})\s*(?:[（(][A-Za-z\s]+[）)])?[\s\n]*"
-    r"(?:电话|手机|Tel|Phone|Mobile|[：:]?\s*(?:\+?\d{2,3}[-\s]?)?"
-    r"1[3-9]\d[\-\s]?\d{4}[\-\s]?\d{4})",
-    re.IGNORECASE,
 )
 
 _SECTION_HEADERS = frozenset({
@@ -88,29 +90,70 @@ _SECTION_HEADERS = frozenset({
     "求职意向", "联系方式", "社会实践", "兴趣爱好", "荣誉奖项", "实习经历",
     "培训经历", "证书资质", "所获奖项", "科研经历", "校园经历", "实践经验",
     "获奖情况", "职业技能", "语言能力", "综合能力", "在校经历", "课外活动",
+    "个人优势", "自我介绍", "资格证书", "主修课程", "选修课程", "技术能力",
+})
+
+_JOB_TITLE_KEYWORDS = frozenset({
+    "工程师", "经理", "总监", "主管", "助理", "专员", "实习生",
+    "分析师", "设计师", "开发", "运营", "产品", "顾问", "架构师",
+    "研究员", "讲师", "教授", "编辑", "记者", "秘书", "董事",
 })
 
 
 def _is_valid_name(text: str) -> bool:
-    return bool(_CHINESE_NAME_RE.match(text)) and text not in _SECTION_HEADERS
+    if not _CHINESE_NAME_RE.match(text):
+        return False
+    if text in _SECTION_HEADERS:
+        return False
+    for kw in _JOB_TITLE_KEYWORDS:
+        if kw in text:
+            return False
+    return True
+
+
+def _extract_leading_name(line: str) -> str | None:
+    """Extract a CJK name from the beginning of a line (may have trailing content)."""
+    m = re.match(rf"({_CJK}{{2,4}})(?:\s|[（(]|$)", line)
+    if m and _is_valid_name(m.group(1)):
+        return m.group(1)
+    return None
 
 
 def extract_name_from_resume(raw_text: str, original_filename: str = "") -> str:
     """Try to extract candidate's real name from resume content or filename."""
+    # 1. Labeled name: "姓名：XXX"
     m = _NAME_LABEL_PATTERN.search(raw_text)
     if m and _is_valid_name(m.group(1).strip()):
         return m.group(1).strip()
 
-    m = _NAME_NEAR_CONTACT_RE.search(raw_text)
-    if m and _is_valid_name(m.group(1).strip()):
-        return m.group(1).strip()
-
+    # 2. First lines: standalone name (entire line is just a name)
     first_lines = raw_text.strip().splitlines()[:10]
     for line in first_lines:
         line = line.strip()
+        if not line:
+            continue
         if _is_valid_name(line):
             return line
 
+    # 3. Name adjacent to contact info (phone/email within same or nearby line)
+    lines = raw_text.splitlines()
+    phone_re = re.compile(r"1[3-9]\d[\-\s]?\d{4}[\-\s]?\d{4}")
+    email_re = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+    contact_kw_re = re.compile(r"电话|手机|Tel|Phone|Mobile|邮箱|Email", re.IGNORECASE)
+    for i, line in enumerate(lines):
+        has_contact = phone_re.search(line) or email_re.search(line) or contact_kw_re.search(line)
+        if not has_contact:
+            continue
+        check_range = range(max(0, i - 2), i + 1)
+        for j in check_range:
+            cand_line = lines[j].strip()
+            if _is_valid_name(cand_line):
+                return cand_line
+            leading = _extract_leading_name(cand_line)
+            if leading:
+                return leading
+
+    # 4. Filename
     if original_filename:
         stem = os.path.splitext(original_filename)[0]
         stem = _FILENAME_STRIP_RE.sub("", stem).strip("-_ ")

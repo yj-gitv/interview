@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass, field
 
 from app.services.llm_client import LLMClient
+from app.services.criteria_utils import format_criteria_section
 from app.config import settings
 
 
@@ -30,13 +31,13 @@ SUMMARY_SYSTEM_PROMPT = """你是一位资深HR，需要根据完整面试转录
 - depth_score: 思维深度（分析问题的层次和全面性）
 - self_awareness_score: 自我认知（对自身优劣势的真实认知）
 - enthusiasm_score: 岗位热情（对岗位和公司的了解和兴趣）
-- overall_score: 综合评分
+- overall_score: 综合评分（如有自定义考察维度，应重点参考候选人在这些维度上的面试表现）
 
 recommendation 取值：推荐 / 待定 / 不推荐
 
 返回JSON格式：
 {
-  "candidate_overview": "一段话总结候选人",
+  "candidate_overview": "一段话总结候选人（如有自定义考察维度，需在概述中点评候选人在各维度的表现）",
   "expression_score": number,
   "case_richness_score": number,
   "depth_score": number,
@@ -46,7 +47,7 @@ recommendation 取值：推荐 / 待定 / 不推荐
   "highlights": ["亮点1", "亮点2", "亮点3"],
   "concerns": ["顾虑点1", "顾虑点2"],
   "jd_alignment": [
-    {"requirement": "JD要求项", "status": "达成/部分达成/未达成", "note": "说明"}
+    {"requirement": "JD要求项或自定义考察维度", "status": "达成/部分达成/未达成", "note": "基于面试中的具体表现说明"}
   ],
   "recommendation": "推荐/待定/不推荐",
   "recommendation_reason": "推荐理由",
@@ -80,12 +81,18 @@ class SummaryGenService:
         jd_text: str,
         resume_text: str = "",
         match_data: dict | None = None,
+        preferences: str = "",
     ) -> SummaryResult:
         prompt = f"## 岗位JD\n{jd_text}\n\n## 完整面试转录\n{transcript}"
         if resume_text:
             prompt += f"\n\n## 候选人简历（脱敏）\n{resume_text}"
         if match_data:
             prompt += f"\n\n## 简历匹配评分\n{json.dumps(match_data, ensure_ascii=False)}"
+        prompt += format_criteria_section(
+            preferences,
+            "面试官自定义考察重点",
+            "请基于以上考察维度评估候选人的面试表现，jd_alignment 中应包含每个自定义维度的达成情况。",
+        )
 
         data = await self._call_llm(prompt)
         return SummaryResult(

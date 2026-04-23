@@ -2,12 +2,14 @@ import json as json_module
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.interview import Interview, InterviewStatus
 from app.models.candidate import Candidate
 from app.models.position import Position
+from app.models.transcript import Transcript
 from app.schemas.interview import InterviewCreate, InterviewResponse
 from app.services import interview_manager
 from app.services.pii_masking import mask_display_name
@@ -103,6 +105,57 @@ def get_transcripts(interview_id: int, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/{interview_id}/transcripts/export")
+def export_transcripts(interview_id: int, db: Session = Depends(get_db)):
+    interview = db.get(Interview, interview_id)
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+
+    transcripts = (
+        db.query(Transcript)
+        .filter(Transcript.interview_id == interview_id)
+        .order_by(Transcript.timestamp)
+        .all()
+    )
+
+    codename, display_name = _candidate_display(interview.candidate)
+    position_title = interview.position.title if interview.position else ""
+    interview_date = (
+        interview.started_at.strftime("%Y-%m-%d %H:%M")
+        if interview.started_at
+        else interview.created_at.strftime("%Y-%m-%d %H:%M")
+    )
+    duration_min = interview.duration_seconds // 60 if interview.duration_seconds else 0
+
+    speaker_labels = {"interviewer": "面试官", "candidate": "候选人"}
+
+    lines = [
+        f"面试转录记录",
+        f"{'=' * 40}",
+        f"候选人：{display_name or codename}",
+        f"岗位：{position_title}",
+        f"日期：{interview_date}",
+        f"时长：{duration_min} 分钟",
+        f"{'=' * 40}",
+        "",
+    ]
+
+    for t in transcripts:
+        minutes = int(t.timestamp) // 60
+        seconds = int(t.timestamp) % 60
+        time_str = f"[{minutes:02d}:{seconds:02d}]"
+        label = speaker_labels.get(t.speaker, t.speaker)
+        lines.append(f"{time_str} {label}: {t.sanitized_text}")
+        lines.append("")
+
+    filename = f"{codename}_{position_title}_转录记录.txt"
+    return PlainTextResponse(
+        content="\n".join(lines),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _candidate_display(candidate: Candidate | None) -> tuple[str, str]:
     if not candidate:
         return "", ""
@@ -147,11 +200,13 @@ async def create_interview_session(interview_id: int, db: Session = Depends(get_
     elif isinstance(questions_raw, list):
         questions = questions_raw
     codename = interview.candidate.codename if interview.candidate else "候选人"
+    preferences = interview.position.preferences if interview.position else ""
 
     await interview_manager.create_session(
         interview_id=interview_id,
         questions=questions,
         codename=codename,
+        preferences=preferences,
     )
     return {"status": "session_created", "interview_id": interview_id}
 

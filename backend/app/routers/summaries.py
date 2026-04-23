@@ -42,6 +42,7 @@ async def generate_summary(interview_id: int, db: Session = Depends(get_db)):
 
     jd_text = interview.position.jd_text if interview.position else ""
     resume_text = interview.candidate.resume_sanitized_text if interview.candidate else ""
+    preferences = interview.position.preferences if interview.position else ""
 
     match_data = None
     if interview.candidate and interview.candidate.match:
@@ -58,6 +59,7 @@ async def generate_summary(interview_id: int, db: Session = Depends(get_db)):
         jd_text=jd_text,
         resume_text=resume_text,
         match_data=match_data,
+        preferences=preferences,
     )
 
     existing = db.query(Summary).filter(Summary.interview_id == interview_id).first()
@@ -117,6 +119,17 @@ def export_pdf(interview_id: int, db: Session = Depends(get_db)):
     )
     duration_min = (interview.duration_seconds // 60) if interview else 0
 
+    transcripts = (
+        db.query(Transcript)
+        .filter(Transcript.interview_id == interview_id)
+        .order_by(Transcript.timestamp)
+        .all()
+    )
+    transcript_lines = [
+        {"speaker": t.speaker, "sanitized_text": t.sanitized_text, "timestamp": t.timestamp}
+        for t in transcripts
+    ]
+
     os.makedirs("./exports", exist_ok=True)
     pdf_path = f"./exports/interview_{interview_id}_summary.pdf"
 
@@ -142,6 +155,7 @@ def export_pdf(interview_id: int, db: Session = Depends(get_db)):
         recommendation=summary.recommendation,
         recommendation_reason=summary.recommendation_reason,
         next_steps=summary.next_steps,
+        transcript_lines=transcript_lines if transcript_lines else None,
     )
 
     summary.pdf_path = pdf_path

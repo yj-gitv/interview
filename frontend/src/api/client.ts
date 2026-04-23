@@ -13,6 +13,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface EvaluationCriterion {
+  name: string;
+  description: string;
+  weight: "high" | "medium" | "low";
+}
+
 export interface Position {
   id: number;
   title: string;
@@ -24,6 +30,21 @@ export interface Position {
   created_at: string;
   updated_at: string;
   candidate_count: number;
+}
+
+export function parseCriteria(preferences: string): EvaluationCriterion[] {
+  if (!preferences) return [];
+  try {
+    const data = JSON.parse(preferences);
+    if (Array.isArray(data)) return data.filter((c) => c && c.name);
+  } catch {
+    // not JSON — legacy plain text
+  }
+  return [];
+}
+
+export function serializeCriteria(criteria: EvaluationCriterion[]): string {
+  return JSON.stringify(criteria);
 }
 
 export interface Candidate {
@@ -133,9 +154,15 @@ export interface WsAnalysis {
   instant_comment: string;
 }
 
+export interface WsSpeakerRelabel {
+  type: "speaker_relabel";
+  mapping: Record<string, string>;
+}
+
 export type WsMessage =
   | WsTranscript
   | WsAnalysis
+  | WsSpeakerRelabel
   | { type: "error"; message: string }
   | { type: "question_switched"; current_question_index: number };
 
@@ -253,6 +280,8 @@ export const api = {
       }),
     getTranscripts: (id: number) =>
       request<TranscriptEntry[]>(`/interviews/${id}/transcripts`),
+    exportTranscripts: (id: number) =>
+      `${BASE}/interviews/${id}/transcripts/export`,
   },
   summaries: {
     get: (interviewId: number) =>

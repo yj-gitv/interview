@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, type ChangeEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, Position } from "../api/client";
+import { api, Position, serializeCriteria, type EvaluationCriterion } from "../api/client";
+import CriteriaEditor from "../components/CriteriaEditor";
 
 export default function PositionList() {
   const [positions, setPositions] = useState<Position[]>([]);
@@ -8,6 +9,8 @@ export default function PositionList() {
   const [title, setTitle] = useState("");
   const [department, setDepartment] = useState("");
   const [jdText, setJdText] = useState("");
+  const [criteria, setCriteria] = useState<EvaluationCriterion[]>([]);
+  const [showCriteria, setShowCriteria] = useState(false);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -46,10 +49,17 @@ export default function PositionList() {
     }
     setCreating(true);
     try {
-      await api.positions.create({ title, department, jd_text: jdText });
+      await api.positions.create({
+        title,
+        department,
+        jd_text: jdText,
+        preferences: criteria.length > 0 ? serializeCriteria(criteria) : "",
+      });
       setTitle("");
       setDepartment("");
       setJdText("");
+      setCriteria([]);
+      setShowCriteria(false);
       setShowForm(false);
       const updated = await api.positions.list();
       setPositions(updated);
@@ -149,6 +159,23 @@ export default function PositionList() {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="粘贴完整的岗位描述，或使用「从文件导入」（.txt / .pdf / .docx）"
             />
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowCriteria(!showCriteria)}
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            >
+              {showCriteria ? "收起考察维度" : "+ 设置考察维度（可选）"}
+            </button>
+            {showCriteria && (
+              <div className="mt-2 border border-gray-200 rounded-lg p-3 bg-gray-50/50">
+                <p className="text-xs text-gray-400 mb-2">
+                  定义岗位核心考察维度，AI 将据此生成更有针对性的面试问题和评分
+                </p>
+                <CriteriaEditor criteria={criteria} onChange={setCriteria} />
+              </div>
+            )}
           </div>
           <button
             type="button"

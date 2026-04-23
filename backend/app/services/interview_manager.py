@@ -14,7 +14,12 @@ logger = logging.getLogger(__name__)
 from app.database import SessionLocal
 from app.models.transcript import Transcript
 from app.services.transcription import SherpaRecognizer, SenseVoiceRecognizer, SherpaPunctuation
-from app.services.audio_processing import SileroVAD, SpeakerIdentifier, AudioPreprocessor
+from app.services.audio_processing import (
+    SileroVAD,
+    SpeakerIdentifier,
+    AudioPreprocessor,
+    SpeakerRoleResolver,
+)
 from app.services.audio_capture import AudioCaptureService
 from app.services.realtime_analysis import RealtimeAnalysisService
 from app.services.pii_masking import PIIMasker
@@ -27,6 +32,7 @@ class InterviewSession:
     current_question_index: int = 0
     transcript_lines: list[str] = field(default_factory=list)
     codename: str = "候选人"
+    preferences: str = ""
     start_time: float = 0.0
     _audio_capture: AudioCaptureService | None = None
     _analysis: RealtimeAnalysisService | None = None
@@ -69,15 +75,48 @@ def _persist_transcript(
         db.close()
 
 
+def _relabel_past_transcripts(
+    session: "InterviewSession", mapping: dict[str, str]
+) -> None:
+    """Apply a speaker-label remap to DB rows and in-memory transcript lines."""
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Transcript)
+            .filter(Transcript.interview_id == session.interview_id)
+            .all()
+        )
+        for t in rows:
+            new_spk = mapping.get(t.speaker)
+            if new_spk and new_spk != t.speaker:
+                t.speaker = new_spk
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+    new_lines = []
+    for line in session.transcript_lines:
+        if ": " in line:
+            spk, rest = line.split(": ", 1)
+            new_lines.append(f"{mapping.get(spk, spk)}: {rest}")
+        else:
+            new_lines.append(line)
+    session.transcript_lines = new_lines
+
+
 async def create_session(
     interview_id: int,
     questions: list[dict],
     codename: str = "候选人",
+    preferences: str = "",
 ) -> InterviewSession:
     session = InterviewSession(
         interview_id=interview_id,
         questions=questions,
         codename=codename,
+        preferences=preferences,
         start_time=time.time(),
     )
     session._audio_queue = asyncio.Queue()
@@ -150,6 +189,8 @@ async def process_audio_loop(session: InterviewSession):
     chunk_counts: dict[str, int] = {}
     # Speaker identifier for onsite single-mic mode
     speaker_id: SpeakerIdentifier | None = None
+    last_raw_speaker: str = "interviewer"
+    role_resolver = SpeakerRoleResolver()
 
     while session._running:
         try:
@@ -189,12 +230,11 @@ async def process_audio_loop(session: InterviewSession):
             current_text = recognizer.get_text(asr_stream)
             elapsed = time.time() - session.start_time
 
-            # For remote mode, speaker is known from source tag
-            # For onsite mode (single mic), draft speaker is tentative
             if source_speaker in ("interviewer", "candidate"):
-                draft_speaker = source_speaker
+                raw_draft = source_speaker
             else:
-                draft_speaker = "interviewer"
+                raw_draft = last_raw_speaker
+            draft_speaker = role_resolver.map_speaker(raw_draft)
 
             # Broadcast real-time draft
             if current_text and current_text != last_text:
@@ -225,14 +265,31 @@ async def process_audio_loop(session: InterviewSession):
                 if source_speaker in ("interviewer", "candidate"):
                     speaker = source_speaker
                 elif tag == "single":
-                    if speaker_id is None:
-                        speaker_id = SpeakerIdentifier(settings.speaker_model_path)
-                        print("[audio_loop] SpeakerIdentifier initialized for onsite mode", flush=True)
-                    speaker = await loop.run_in_executor(
-                        None, speaker_id.identify, seg_audio
-                    )
+                    if speaker_id is None and not getattr(
+                        process_audio_loop, "_speaker_id_failed", False
+                    ):
+                        try:
+                            speaker_id = SpeakerIdentifier(settings.speaker_model_path)
+                            print("[audio_loop] SpeakerIdentifier initialized for onsite mode", flush=True)
+                        except Exception as e:
+                            process_audio_loop._speaker_id_failed = True
+                            print(f"[audio_loop] SpeakerIdentifier init failed (will use fallback): {e}", flush=True)
+
+                    if speaker_id is not None:
+                        try:
+                            speaker = await loop.run_in_executor(
+                                None, speaker_id.identify, seg_audio
+                            )
+                        except Exception as e:
+                            print(f"[audio_loop] Speaker identify failed: {e}", flush=True)
+                            speaker = "interviewer"
+                    else:
+                        speaker = "interviewer"
                 else:
                     speaker = "interviewer"
+
+                raw_speaker = speaker
+                last_raw_speaker = raw_speaker
 
                 # Normalize AFTER VAD has cut the segment
                 seg_normalized = preprocessor.process(seg_audio)
@@ -257,9 +314,15 @@ async def process_audio_loop(session: InterviewSession):
                         pass
 
                 sanitized = session._masker.mask(final_text) if session._masker else final_text
+
+                mapped_speaker, swap_mapping = role_resolver.observe(
+                    raw_speaker, sanitized
+                )
+                speaker = mapped_speaker
+
                 line = f"{speaker}: {sanitized}"
                 session.transcript_lines.append(line)
-                print(f"[audio_loop] FINAL [{speaker}]: {sanitized}", flush=True)
+                print(f"[audio_loop] FINAL [{speaker}] (raw={raw_speaker}): {sanitized}", flush=True)
 
                 _persist_transcript(
                     interview_id=session.interview_id,
@@ -268,6 +331,14 @@ async def process_audio_loop(session: InterviewSession):
                     sanitized_text=sanitized,
                     timestamp=round(elapsed, 1),
                 )
+
+                if swap_mapping:
+                    print(f"[audio_loop] Role resolver locked mapping: {swap_mapping}", flush=True)
+                    _relabel_past_transcripts(session, swap_mapping)
+                    await broadcast(session, {
+                        "type": "speaker_relabel",
+                        "mapping": swap_mapping,
+                    })
 
                 await broadcast(session, {
                     "type": "transcript",
@@ -327,6 +398,7 @@ async def _run_analysis(session: InterviewSession):
             transcript_so_far=full_transcript,
             questions=session.questions,
             current_question_index=session.current_question_index,
+            preferences=session.preferences,
         )
         if result.current_question_index != session.current_question_index:
             session.current_question_index = result.current_question_index
