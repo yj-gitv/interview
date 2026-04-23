@@ -1,9 +1,12 @@
 import json
+import os
 import asyncio
 import logging
 
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
 
 logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +23,7 @@ from app.routers.positions import router as positions_router
 from app.routers.summaries import router as summaries_router
 from app.routers.settings_api import router as settings_router
 
-app = FastAPI(title="Interview Assistant", version="0.1.0")
+app = FastAPI(title="Interview Assistant", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -178,3 +181,19 @@ async def websocket_interview(websocket: WebSocket, interview_id: int):
     except WebSocketDisconnect:
         session._running = False
         interview_manager.remove_websocket(session, websocket)
+
+
+# --------------- SPA static file serving (standalone mode) ---------------
+_static_dir = os.environ.get("INTERVIEW_STATIC_DIR", os.path.join(os.getcwd(), "static"))
+
+if os.path.isdir(_static_dir):
+    _assets_dir = os.path.join(_static_dir, "assets")
+    if os.path.isdir(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="static-assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        file_path = os.path.join(_static_dir, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(_static_dir, "index.html"))

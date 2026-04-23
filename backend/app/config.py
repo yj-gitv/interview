@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     openai_model_fast: str = "gpt-4o-mini"
     openai_model_strong: str = "gpt-4o"
     upload_dir: str = "./uploads"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000", "http://localhost:8000"]
     asr_model_dir: str = "/app/sherpa-onnx-streaming-paraformer-bilingual-zh-en"
     asr_offline_model: str = "/app/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx"
     asr_offline_tokens: str = "/app/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt"
