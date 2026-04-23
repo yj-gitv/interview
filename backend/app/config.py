@@ -1,21 +1,48 @@
+import os
+import sys
+
 from pydantic_settings import BaseSettings
 
 
+def _base_dir() -> str:
+    """Return the application root directory (works both in dev and PyInstaller bundle)."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.getcwd()
+
+
+_BASE = _base_dir()
+
+
+def _model_path(rel: str) -> str:
+    """Resolve a model path: use /app/ prefix in Docker, ./models/ locally."""
+    docker_path = f"/app/{rel}"
+    if os.path.exists(docker_path):
+        return docker_path
+    return os.path.join(_BASE, "models", rel)
+
+
 class Settings(BaseSettings):
-    database_url: str = "sqlite:///./data/interview.db"
+    database_url: str = f"sqlite:///{os.path.join(_BASE, 'data', 'interview.db')}"
     db_encryption_key: str = ""
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model_fast: str = "gpt-4o-mini"
     openai_model_strong: str = "gpt-4o"
-    upload_dir: str = "./uploads"
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000", "http://localhost:8000"]
-    asr_model_dir: str = "/app/sherpa-onnx-streaming-paraformer-bilingual-zh-en"
-    asr_offline_model: str = "/app/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx"
-    asr_offline_tokens: str = "/app/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt"
-    punct_model_path: str = "/app/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/model.int8.onnx"
-    vad_model_path: str = "/app/silero_vad.onnx"
-    speaker_model_path: str = "/app/3dspeaker.onnx"
+    upload_dir: str = os.path.join(_BASE, "uploads")
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    asr_model_dir: str = _model_path("sherpa-onnx-streaming-paraformer-bilingual-zh-en")
+    asr_offline_model: str = _model_path(
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx"
+    )
+    asr_offline_tokens: str = _model_path(
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt"
+    )
+    punct_model_path: str = _model_path(
+        "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/model.int8.onnx"
+    )
+    vad_model_path: str = _model_path("silero_vad.onnx")
+    speaker_model_path: str = _model_path("3dspeaker.onnx")
     audio_sample_rate: int = 16000
     audio_device_name: str = "BlackHole 2ch"
     diarization_enabled: bool = True

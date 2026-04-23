@@ -1,12 +1,11 @@
 import json
-import os
 import asyncio
 import logging
+import os
 
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse
+from fastapi.responses import FileResponse
 
 logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
@@ -183,17 +182,23 @@ async def websocket_interview(websocket: WebSocket, interview_id: int):
         interview_manager.remove_websocket(session, websocket)
 
 
-# --------------- SPA static file serving (standalone mode) ---------------
-_static_dir = os.environ.get("INTERVIEW_STATIC_DIR", os.path.join(os.getcwd(), "static"))
+# ---------------------------------------------------------------------------
+# Serve frontend static files (for desktop / single-binary mode)
+# ---------------------------------------------------------------------------
+_static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static")
+if not os.path.isdir(_static_dir):
+    _static_dir = os.path.join(os.getcwd(), "static")
 
 if os.path.isdir(_static_dir):
-    _assets_dir = os.path.join(_static_dir, "assets")
-    if os.path.isdir(_assets_dir):
-        app.mount("/assets", StaticFiles(directory=_assets_dir), name="static-assets")
+    from fastapi.staticfiles import StaticFiles
 
-    @app.get("/{full_path:path}")
+    _index_html = os.path.join(_static_dir, "index.html")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         file_path = os.path.join(_static_dir, full_path)
         if full_path and os.path.isfile(file_path):
             return FileResponse(file_path)
-        return FileResponse(os.path.join(_static_dir, "index.html"))
+        return FileResponse(_index_html)
+
+    logger.info("Serving frontend from %s", _static_dir)
